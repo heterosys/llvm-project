@@ -79,6 +79,9 @@ jobs:
         uses: actions/download-artifact@v1
         with:
           name: release_url
+      - name: Get current date
+        id: date
+        run: echo "::set-output name=date::$(date -u +'%Y%m%d')"
       - name: Get release upload URL
         id: get_release_info
         run: |
