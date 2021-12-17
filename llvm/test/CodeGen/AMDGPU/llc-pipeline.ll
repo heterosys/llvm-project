@@ -32,6 +32,7 @@
 ; GCN-O0-NEXT:      FunctionPass Manager
 ; GCN-O0-NEXT:        Dominator Tree Construction
 ; GCN-O0-NEXT:    Lower ctors and dtors for AMDGPU
+; GCN-O0-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O0-NEXT:    FunctionPass Manager
 ; GCN-O0-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O0-NEXT:    AMDGPU Lower Intrinsics
@@ -161,12 +162,14 @@
 ; GCN-O1-NEXT:Create Garbage Collector Module Metadata
 ; GCN-O1-NEXT:Machine Branch Probability Analysis
 ; GCN-O1-NEXT:Register Usage Information Storage
+; GCN-O1-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O1-NEXT:  ModulePass Manager
 ; GCN-O1-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O1-NEXT:    AMDGPU Printf lowering
 ; GCN-O1-NEXT:      FunctionPass Manager
 ; GCN-O1-NEXT:        Dominator Tree Construction
 ; GCN-O1-NEXT:    Lower ctors and dtors for AMDGPU
+; GCN-O1-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O1-NEXT:    FunctionPass Manager
 ; GCN-O1-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O1-NEXT:    AMDGPU Lower Intrinsics
@@ -411,12 +414,14 @@
 ; GCN-O1-OPTS-NEXT:Create Garbage Collector Module Metadata
 ; GCN-O1-OPTS-NEXT:Machine Branch Probability Analysis
 ; GCN-O1-OPTS-NEXT:Register Usage Information Storage
+; GCN-O1-OPTS-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O1-OPTS-NEXT:  ModulePass Manager
 ; GCN-O1-OPTS-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O1-OPTS-NEXT:    AMDGPU Printf lowering
 ; GCN-O1-OPTS-NEXT:      FunctionPass Manager
 ; GCN-O1-OPTS-NEXT:        Dominator Tree Construction
 ; GCN-O1-OPTS-NEXT:    Lower ctors and dtors for AMDGPU
+; GCN-O1-OPTS-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O1-OPTS-NEXT:    FunctionPass Manager
 ; GCN-O1-OPTS-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O1-OPTS-NEXT:    AMDGPU Lower Intrinsics
@@ -694,12 +699,14 @@
 ; GCN-O2-NEXT:Create Garbage Collector Module Metadata
 ; GCN-O2-NEXT:Machine Branch Probability Analysis
 ; GCN-O2-NEXT:Register Usage Information Storage
+; GCN-O2-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O2-NEXT:  ModulePass Manager
 ; GCN-O2-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O2-NEXT:    AMDGPU Printf lowering
 ; GCN-O2-NEXT:      FunctionPass Manager
 ; GCN-O2-NEXT:        Dominator Tree Construction
 ; GCN-O2-NEXT:    Lower ctors and dtors for AMDGPU
+; GCN-O2-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O2-NEXT:    FunctionPass Manager
 ; GCN-O2-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O2-NEXT:    AMDGPU Lower Intrinsics
@@ -979,12 +986,14 @@
 ; GCN-O3-NEXT:Create Garbage Collector Module Metadata
 ; GCN-O3-NEXT:Machine Branch Probability Analysis
 ; GCN-O3-NEXT:Register Usage Information Storage
+; GCN-O3-NEXT:Default Regalloc Eviction Advisor
 ; GCN-O3-NEXT:  ModulePass Manager
 ; GCN-O3-NEXT:    Pre-ISel Intrinsic Lowering
 ; GCN-O3-NEXT:    AMDGPU Printf lowering
 ; GCN-O3-NEXT:      FunctionPass Manager
 ; GCN-O3-NEXT:        Dominator Tree Construction
 ; GCN-O3-NEXT:    Lower ctors and dtors for AMDGPU
+; GCN-O3-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O3-NEXT:    FunctionPass Manager
 ; GCN-O3-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O3-NEXT:    AMDGPU Lower Intrinsics
