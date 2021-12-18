@@ -2,7 +2,7 @@ name: Nightly Snapshot
 
 on:
   schedule:
-    - cron:  '00 12 * * *'
+    - cron:  '00 9 * * *'
 
 jobs:
   package-deb:
