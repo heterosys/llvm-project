@@ -582,7 +582,8 @@ protected:
 
   /// Create the exit value of first order recurrences in the middle block and
   /// update their users.
-  void fixFirstOrderRecurrence(VPWidenPHIRecipe *PhiR, VPTransformState &State);
+  void fixFirstOrderRecurrence(VPFirstOrderRecurrencePHIRecipe *PhiR,
+                               VPTransformState &State);
 
   /// Create code for the loop exit value of the reduction.
   void fixReduction(VPReductionPHIRecipe *Phi, VPTransformState &State);
@@ -4096,8 +4097,8 @@ void InnerLoopVectorizer::fixCrossIterationPHIs(VPTransformState &State) {
   }
 }
 
-void InnerLoopVectorizer::fixFirstOrderRecurrence(VPWidenPHIRecipe *PhiR,
-                                                  VPTransformState &State) {
+void InnerLoopVectorizer::fixFirstOrderRecurrence(
+    VPFirstOrderRecurrencePHIRecipe *PhiR, VPTransformState &State) {
   // This is the second phase of vectorizing first-order recurrences. An
   // overview of the transformation is described below. Suppose we have the
   // following loop.
@@ -8712,7 +8713,7 @@ VPWidenRecipe *VPRecipeBuilder::tryToWiden(Instruction *I,
 
 void VPRecipeBuilder::fixHeaderPhis() {
   BasicBlock *OrigLatch = OrigLoop->getLoopLatch();
-  for (VPWidenPHIRecipe *R : PhisToFix) {
+  for (VPHeaderPHIRecipe *R : PhisToFix) {
     auto *PN = cast<PHINode>(R->getUnderlyingValue());
     VPRecipeBase *IncR =
         getRecipe(cast<Instruction>(PN->getIncomingValueForBlock(OrigLatch)));
@@ -8854,7 +8855,7 @@ VPRecipeBuilder::tryToCreateWidenRecipe(Instruction *Instr,
     if ((Recipe = tryToOptimizeInductionPHI(Phi, Operands)))
       return toVPRecipeResult(Recipe);
 
-    VPWidenPHIRecipe *PhiRecipe = nullptr;
+    VPHeaderPHIRecipe *PhiRecipe = nullptr;
     if (Legal->isReductionVariable(Phi) || Legal->isFirstOrderRecurrence(Phi)) {
       VPValue *StartV = Operands[0];
       if (Legal->isReductionVariable(Phi)) {
