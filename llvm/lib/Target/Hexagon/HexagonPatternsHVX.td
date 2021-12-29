@@ -64,7 +64,7 @@ def HexagonVPACKL:     SDNode<"HexagonISD::VPACKL",     SDTVecUnaryOp>;
 def HexagonVUNPACK:    SDNode<"HexagonISD::VUNPACK",    SDTVecUnaryOp>;
 def HexagonVUNPACKU:   SDNode<"HexagonISD::VUNPACKU",   SDTVecUnaryOp>;
 
-def vzero:  PatFrag<(ops), (splat_vector (i32 0))>;
+def vzero:  PatFrags<(ops), [(splat_vector (i32 0)), (splat_vector (f32zero))]>;
 def qtrue:  PatFrag<(ops), (HexagonQTRUE)>;
 def qfalse: PatFrag<(ops), (HexagonQFALSE)>;
 def qcat:   PatFrag<(ops node:$Qs, node:$Qt),
@@ -165,12 +165,19 @@ let Predicates = [UseHVX] in {
   defm: HvxLda_pat<V6_vL32b_ai,               alignedload, VecI8,  IsVecOff>;
   defm: HvxLda_pat<V6_vL32b_ai,               alignedload, VecI16, IsVecOff>;
   defm: HvxLda_pat<V6_vL32b_ai,               alignedload, VecI32, IsVecOff>;
-
   defm: HvxLd_pat<V6_vL32Ub_ai,             unalignedload, VecI8,  IsVecOff>;
   defm: HvxLd_pat<V6_vL32Ub_ai,             unalignedload, VecI16, IsVecOff>;
   defm: HvxLd_pat<V6_vL32Ub_ai,             unalignedload, VecI32, IsVecOff>;
 }
 
+let Predicates = [UseHVXV68] in {
+  defm: HvxLda_pat<V6_vL32b_nt_ai, alignednontemporalload, VecF16, IsVecOff>;
+  defm: HvxLda_pat<V6_vL32b_nt_ai, alignednontemporalload, VecF32, IsVecOff>;
+  defm: HvxLda_pat<V6_vL32b_ai,               alignedload, VecF16, IsVecOff>;
+  defm: HvxLda_pat<V6_vL32b_ai,               alignedload, VecF32, IsVecOff>;
+  defm: HvxLd_pat<V6_vL32Ub_ai,             unalignedload, VecF16, IsVecOff>;
+  defm: HvxLd_pat<V6_vL32Ub_ai,             unalignedload, VecF32, IsVecOff>;
+}
 
 // HVX stores
 
@@ -214,6 +221,15 @@ let Predicates = [UseHVX] in {
   defm: HvxSt_pat<V6_vS32Ub_ai,            unalignedstore, HVI32, IsVecOff>;
 }
 
+let Predicates = [UseHVXV68] in {
+  defm: HvxSt_pat<V6_vS32b_nt_ai, alignednontemporalstore, HVF16, IsVecOff>;
+  defm: HvxSt_pat<V6_vS32b_nt_ai, alignednontemporalstore, HVF32, IsVecOff>;
+  defm: HvxSt_pat<V6_vS32b_ai,               alignedstore, HVF16, IsVecOff>;
+  defm: HvxSt_pat<V6_vS32b_ai,               alignedstore, HVF32, IsVecOff>;
+  defm: HvxSt_pat<V6_vS32Ub_ai,            unalignedstore, HVF16, IsVecOff>;
+  defm: HvxSt_pat<V6_vS32Ub_ai,            unalignedstore, HVF32, IsVecOff>;
+}
+
 // Bitcasts between same-size vector types are no-ops, except for the
 // actual type change.
 let Predicates = [UseHVX] in {
@@ -249,10 +265,13 @@ let Predicates = [UseHVX] in {
     // These should be preferred over a vsplat of 0.
     def: Pat<(VecI8   vzero), (V6_vd0)>;
     def: Pat<(VecI16  vzero), (V6_vd0)>;
+    def: Pat<(VecF16  vzero), (V6_vd0)>;
     def: Pat<(VecI32  vzero), (V6_vd0)>;
+    def: Pat<(VecF32  vzero), (V6_vd0)>;
     def: Pat<(VecPI8  vzero), (PS_vdd0)>;
     def: Pat<(VecPI16 vzero), (PS_vdd0)>;
     def: Pat<(VecPI32 vzero), (PS_vdd0)>;
+    def: Pat<(VecPF32 vzero), (PS_vdd0)>;
 
     def: Pat<(concat_vectors  (VecI8 vzero),  (VecI8 vzero)), (PS_vdd0)>;
     def: Pat<(concat_vectors (VecI16 vzero), (VecI16 vzero)), (PS_vdd0)>;
@@ -345,6 +364,18 @@ let Predicates = [UseHVX,UseHVXV62] in {
     def: Pat<(VecPI8  (splat_vector I32:$Rs)), (Rep (V62splatrb $Rs))>;
     def: Pat<(VecPI16 (splat_vector I32:$Rs)), (Rep (V62splatrh $Rs))>;
     def: Pat<(VecPI32 (splat_vector I32:$Rs)), (Rep (V62splatrw $Rs))>;
+  }
+}
+let Predicates = [UseHVXV68, UseHVXFloatingPoint] in {
+  let AddedComplexity = 30 in {
+    def: Pat<(VecF16  (splat_vector u16_0ImmPred:$V)), (V62splatih imm:$V)>;
+    def: Pat<(VecF32  (splat_vector anyint:$V)),       (V62splatiw imm:$V)>;
+    def: Pat<(VecF32  (splat_vector f32ImmPred:$V)),   (V62splatiw (ftoi $V))>;
+  }
+  let AddedComplexity = 20 in {
+    def: Pat<(VecF16  (splat_vector I32:$Rs)), (V62splatrh $Rs)>;
+    def: Pat<(VecF32  (splat_vector I32:$Rs)), (V62splatrw $Rs)>;
+    def: Pat<(VecF32  (splat_vector F32:$Rs)), (V62splatrw $Rs)>;
   }
 }
 
