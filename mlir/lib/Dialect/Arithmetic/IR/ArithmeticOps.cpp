@@ -905,7 +905,7 @@ OpFoldResult arith::UIToFPOp::fold(ArrayRef<Attribute> operands) {
     FloatType floatTy = getType().cast<FloatType>();
     APFloat apf(floatTy.getFloatSemantics(),
                 APInt::getZero(floatTy.getWidth()));
-    apf.convertFromAPInt(api, /*signed=*/false, APFloat::rmNearestTiesToEven);
+    apf.convertFromAPInt(api, /*IsSigned=*/false, APFloat::rmNearestTiesToEven);
     return FloatAttr::get(floatTy, apf);
   }
   return {};
@@ -925,7 +925,7 @@ OpFoldResult arith::SIToFPOp::fold(ArrayRef<Attribute> operands) {
     FloatType floatTy = getType().cast<FloatType>();
     APFloat apf(floatTy.getFloatSemantics(),
                 APInt::getZero(floatTy.getWidth()));
-    apf.convertFromAPInt(api, /*signed=*/true, APFloat::rmNearestTiesToEven);
+    apf.convertFromAPInt(api, /*IsSigned=*/true, APFloat::rmNearestTiesToEven);
     return FloatAttr::get(floatTy, apf);
   }
   return {};
@@ -943,7 +943,7 @@ OpFoldResult arith::FPToUIOp::fold(ArrayRef<Attribute> operands) {
     const APFloat &apf = lhs.getValue();
     IntegerType intTy = getType().cast<IntegerType>();
     bool ignored;
-    APSInt api(intTy.getWidth(), /*unsigned=*/true);
+    APSInt api(intTy.getWidth(), /*isUnsigned=*/true);
     if (APFloat::opInvalidOp ==
         apf.convertToInteger(api, APFloat::rmTowardZero, &ignored)) {
       // Undefined behavior invoked - the destination type can't represent
@@ -969,7 +969,7 @@ OpFoldResult arith::FPToSIOp::fold(ArrayRef<Attribute> operands) {
     const APFloat &apf = lhs.getValue();
     IntegerType intTy = getType().cast<IntegerType>();
     bool ignored;
-    APSInt api(intTy.getWidth(), /*unsigned=*/false);
+    APSInt api(intTy.getWidth(), /*isUnsigned=*/false);
     if (APFloat::opInvalidOp ==
         apf.convertToInteger(api, APFloat::rmTowardZero, &ignored)) {
       // Undefined behavior invoked - the destination type can't represent
@@ -1148,6 +1148,25 @@ OpFoldResult arith::CmpIOp::fold(ArrayRef<Attribute> operands) {
   if (getLhs() == getRhs()) {
     auto val = applyCmpPredicateToEqualOperands(getPredicate());
     return getBoolAttribute(getType(), getContext(), val);
+  }
+
+  if (matchPattern(getRhs(), m_Zero())) {
+    if (auto extOp = getLhs().getDefiningOp<ExtSIOp>()) {
+      if (extOp.getOperand().getType().cast<IntegerType>().getWidth() == 1) {
+        // extsi(%x : i1 -> iN) != 0  ->  %x
+        if (getPredicate() == arith::CmpIPredicate::ne) {
+          return extOp.getOperand();
+        }
+      }
+    }
+    if (auto extOp = getLhs().getDefiningOp<ExtUIOp>()) {
+      if (extOp.getOperand().getType().cast<IntegerType>().getWidth() == 1) {
+        // extui(%x : i1 -> iN) != 0  ->  %x
+        if (getPredicate() == arith::CmpIPredicate::ne) {
+          return extOp.getOperand();
+        }
+      }
+    }
   }
 
   auto lhs = operands.front().dyn_cast_or_null<IntegerAttr>();
