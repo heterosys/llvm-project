@@ -21156,6 +21156,16 @@ TEST_F(FormatTest, SpacesInAngles) {
   verifyFormat("A< A< int > >();", Spaces);
   verifyFormat("A<A<int > >();", Spaces);
   verifyFormat("A< A< int>>();", Spaces);
+
+  Spaces.SpacesInAngles = FormatStyle::SIAS_Always;
+  verifyFormat("// clang-format off\n"
+               "foo<<<1, 1>>>();\n"
+               "// clang-format on\n",
+               Spaces);
+  verifyFormat("// clang-format off\n"
+               "foo< < <1, 1> > >();\n"
+               "// clang-format on\n",
+               Spaces);
 }
 
 TEST_F(FormatTest, SpaceAfterTemplateKeyword) {
@@ -21464,8 +21474,8 @@ TEST(FormatStyle, GetStyleOfFile) {
   ASSERT_TRUE((bool)StyleTd);
   ASSERT_EQ(*StyleTd, getLLVMStyle(FormatStyle::LK_TableGen));
 
-  // Test 9.1: overwriting a file style, when parent no file exists with no
-  // fallback style
+  // Test 9.1.1: overwriting a file style, when no parent file exists with no
+  // fallback style.
   ASSERT_TRUE(FS.addFile(
       "/e/sub/.clang-format", 0,
       llvm::MemoryBuffer::getMemBuffer("BasedOnStyle: InheritParentConfig\n"
@@ -21477,6 +21487,25 @@ TEST(FormatStyle, GetStyleOfFile) {
   ASSERT_EQ(*Style9, [] {
     auto Style = getNoStyle();
     Style.ColumnLimit = 20;
+    return Style;
+  }());
+
+  // Test 9.1.2: propagate more than one level with no parent file.
+  ASSERT_TRUE(FS.addFile("/e/sub/sub/code.cpp", 0,
+                         llvm::MemoryBuffer::getMemBuffer("int i;")));
+  ASSERT_TRUE(FS.addFile("/e/sub/sub/.clang-format", 0,
+                         llvm::MemoryBuffer::getMemBuffer(
+                             "BasedOnStyle: InheritParentConfig\n"
+                             "WhitespaceSensitiveMacros: ['FOO', 'BAR']")));
+  std::vector<std::string> NonDefaultWhiteSpaceMacros{"FOO", "BAR"};
+
+  ASSERT_NE(Style9->WhitespaceSensitiveMacros, NonDefaultWhiteSpaceMacros);
+  Style9 = getStyle("file", "/e/sub/sub/code.cpp", "none", "", &FS);
+  ASSERT_TRUE(static_cast<bool>(Style9));
+  ASSERT_EQ(*Style9, [&NonDefaultWhiteSpaceMacros] {
+    auto Style = getNoStyle();
+    Style.ColumnLimit = 20;
+    Style.WhitespaceSensitiveMacros = NonDefaultWhiteSpaceMacros;
     return Style;
   }());
 
@@ -21503,15 +21532,7 @@ TEST(FormatStyle, GetStyleOfFile) {
     return Style;
   }());
 
-  // Test 9.4: propagate more than one level
-  ASSERT_TRUE(FS.addFile("/e/sub/sub/code.cpp", 0,
-                         llvm::MemoryBuffer::getMemBuffer("int i;")));
-  ASSERT_TRUE(FS.addFile("/e/sub/sub/.clang-format", 0,
-                         llvm::MemoryBuffer::getMemBuffer(
-                             "BasedOnStyle: InheritParentConfig\n"
-                             "WhitespaceSensitiveMacros: ['FOO', 'BAR']")));
-  std::vector<std::string> NonDefaultWhiteSpaceMacros{"FOO", "BAR"};
-
+  // Test 9.4: propagate more than one level with a parent file.
   const auto SubSubStyle = [&NonDefaultWhiteSpaceMacros] {
     auto Style = getGoogleStyle();
     Style.ColumnLimit = 20;
@@ -21568,6 +21589,70 @@ TEST(FormatStyle, GetStyleOfFile) {
     Style.IndentWidth = 7;
     return Style;
   }());
+
+  // Test 9.9: use inheritance from a specific config file.
+  Style9 = getStyle("file:/e/sub/sub/.clang-format", "/e/sub/sub/code.cpp",
+                    "none", "", &FS);
+  ASSERT_TRUE(static_cast<bool>(Style9));
+  ASSERT_EQ(*Style9, SubSubStyle);
+}
+
+TEST(FormatStyle, GetStyleOfSpecificFile) {
+  llvm::vfs::InMemoryFileSystem FS;
+  // Specify absolute path to a format file in a parent directory.
+  ASSERT_TRUE(
+      FS.addFile("/e/.clang-format", 0,
+                 llvm::MemoryBuffer::getMemBuffer("BasedOnStyle: LLVM")));
+  ASSERT_TRUE(
+      FS.addFile("/e/explicit.clang-format", 0,
+                 llvm::MemoryBuffer::getMemBuffer("BasedOnStyle: Google")));
+  ASSERT_TRUE(FS.addFile("/e/sub/sub/sub/test.cpp", 0,
+                         llvm::MemoryBuffer::getMemBuffer("int i;")));
+  auto Style = getStyle("file:/e/explicit.clang-format",
+                        "/e/sub/sub/sub/test.cpp", "LLVM", "", &FS);
+  ASSERT_TRUE(static_cast<bool>(Style));
+  ASSERT_EQ(*Style, getGoogleStyle());
+
+  // Specify relative path to a format file.
+  ASSERT_TRUE(
+      FS.addFile("../../e/explicit.clang-format", 0,
+                 llvm::MemoryBuffer::getMemBuffer("BasedOnStyle: Google")));
+  Style = getStyle("file:../../e/explicit.clang-format",
+                   "/e/sub/sub/sub/test.cpp", "LLVM", "", &FS);
+  ASSERT_TRUE(static_cast<bool>(Style));
+  ASSERT_EQ(*Style, getGoogleStyle());
+
+  // Specify path to a format file that does not exist.
+  Style = getStyle("file:/e/missing.clang-format", "/e/sub/sub/sub/test.cpp",
+                   "LLVM", "", &FS);
+  ASSERT_FALSE(static_cast<bool>(Style));
+  llvm::consumeError(Style.takeError());
+
+  // Specify path to a file on the filesystem.
+  SmallString<128> FormatFilePath;
+  std::error_code ECF = llvm::sys::fs::createTemporaryFile(
+      "FormatFileTest", "tpl", FormatFilePath);
+  EXPECT_FALSE((bool)ECF);
+  llvm::raw_fd_ostream FormatFileTest(FormatFilePath, ECF);
+  EXPECT_FALSE((bool)ECF);
+  FormatFileTest << "BasedOnStyle: Google\n";
+  FormatFileTest.close();
+
+  SmallString<128> TestFilePath;
+  std::error_code ECT =
+      llvm::sys::fs::createTemporaryFile("CodeFileTest", "cc", TestFilePath);
+  EXPECT_FALSE((bool)ECT);
+  llvm::raw_fd_ostream CodeFileTest(TestFilePath, ECT);
+  CodeFileTest << "int i;\n";
+  CodeFileTest.close();
+
+  std::string format_file_arg = std::string("file:") + FormatFilePath.c_str();
+  Style = getStyle(format_file_arg, TestFilePath, "LLVM", "", nullptr);
+
+  llvm::sys::fs::remove(FormatFilePath.c_str());
+  llvm::sys::fs::remove(TestFilePath.c_str());
+  ASSERT_TRUE(static_cast<bool>(Style));
+  ASSERT_EQ(*Style, getGoogleStyle());
 }
 
 TEST_F(ReplacementTest, FormatCodeAfterReplacements) {
