@@ -315,6 +315,10 @@ bool mustNotExtend(MCExpr const &Expr);
 // Returns true if this instruction requires a slot to execute.
 bool requiresSlot(MCSubtargetInfo const &STI, MCInst const &MCI);
 
+
+// Returns true if \a MCB would require endloop padding.
+bool LoopNeedsPadding(MCInst const &MCB);
+
 unsigned packetSize(StringRef CPU);
 
 // Returns the maximum number of slots available in the given
@@ -326,8 +330,7 @@ unsigned packetSizeSlots(MCSubtargetInfo const &STI);
 unsigned slotsConsumed(MCInstrInfo const &MCII, MCSubtargetInfo const &STI,
                        MCInst const &MCI);
 
-
-// Pad the bundle with nops to satisfy endloop requirements
+// Pad the bundle with nops to satisfy endloop requirements.
 void padEndloop(MCInst &MCI, MCContext &Context);
 class PredicateInfo {
 public:
