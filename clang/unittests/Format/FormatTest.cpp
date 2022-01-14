@@ -4804,6 +4804,13 @@ TEST_F(FormatTest, MacroCallsWithoutTrailingSemicolon) {
                Style);
 }
 
+TEST_F(FormatTest, FormatsMacrosWithZeroColumnWidth) {
+  FormatStyle ZeroColumn = getLLVMStyleWithColumns(0);
+
+  verifyFormat("#define A LOOOOOOOOOOOOOOOOOOONG() LOOOOOOOOOOOOOOOOOOONG()",
+               ZeroColumn);
+}
+
 TEST_F(FormatTest, LayoutMacroDefinitionsStatementsSpanningBlocks) {
   verifyFormat("#define A \\\n"
                "  f({     \\\n"
