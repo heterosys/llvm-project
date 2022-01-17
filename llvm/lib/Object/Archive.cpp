@@ -656,7 +656,7 @@ Expected<std::unique_ptr<Archive>> Archive::create(MemoryBufferRef Source) {
 
   if (Err)
     return std::move(Err);
-  return Ret;
+  return std::move(Ret);
 }
 
 std::unique_ptr<AbstractArchiveMemberHeader>
