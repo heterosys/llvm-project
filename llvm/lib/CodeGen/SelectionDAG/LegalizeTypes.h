@@ -283,7 +283,7 @@ private:
     EVT OldVT = Op.getValueType();
     SDLoc DL(Op);
     Op = GetPromotedInteger(Op);
-    if (TLI.isSExtCheaperThanZExt(OldVT, Op.getValueType(), Op))
+    if (TLI.isSExtCheaperThanZExt(OldVT, Op.getValueType()))
       return DAG.getNode(ISD::SIGN_EXTEND_INREG, DL, Op.getValueType(), Op,
                          DAG.getValueType(OldVT));
     return DAG.getZeroExtendInReg(Op, DL, OldVT);
@@ -818,6 +818,9 @@ private:
   void GetSplitVector(SDValue Op, SDValue &Lo, SDValue &Hi);
   void SetSplitVector(SDValue Op, SDValue Lo, SDValue Hi);
 
+  /// Split mask operator of a VP intrinsic.
+  std::pair<SDValue, SDValue> SplitMask(SDValue Mask);
+
   // Helper function for incrementing the pointer when splitting
   // memory operations
   void IncrementPointer(MemSDNode *N, EVT MemVT, MachinePointerInfo &MPI,
@@ -864,6 +867,7 @@ private:
   SDValue SplitVecOp_VSELECT(SDNode *N, unsigned OpNo);
   SDValue SplitVecOp_VECREDUCE(SDNode *N, unsigned OpNo);
   SDValue SplitVecOp_VECREDUCE_SEQ(SDNode *N);
+  SDValue SplitVecOp_VP_REDUCE(SDNode *N, unsigned OpNo);
   SDValue SplitVecOp_UnaryOp(SDNode *N);
   SDValue SplitVecOp_TruncateHelper(SDNode *N);
 
