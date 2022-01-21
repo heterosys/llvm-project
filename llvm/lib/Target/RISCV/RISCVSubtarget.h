@@ -83,6 +83,7 @@ private:
   bool HasStdExtZve64d = false;
   bool HasStdExtZfhmin = false;
   bool HasStdExtZfh = false;
+  bool HasStdExtZbkb = false;
   bool HasRV64 = false;
   bool IsRV32E = false;
   bool EnableLinkerRelax = false;
@@ -153,15 +154,10 @@ public:
   bool hasStdExtZbr() const { return HasStdExtZbr; }
   bool hasStdExtZbs() const { return HasStdExtZbs; }
   bool hasStdExtZbt() const { return HasStdExtZbt; }
-  bool hasStdExtV() const { return HasStdExtV; }
-  bool hasStdExtZve32x() const { return HasStdExtZve32x; }
-  bool hasStdExtZve32f() const { return HasStdExtZve32f; }
-  bool hasStdExtZve64x() const { return HasStdExtZve64x; }
-  bool hasStdExtZve64f() const { return HasStdExtZve64f; }
-  bool hasStdExtZve64d() const { return HasStdExtZve64d; }
   bool hasStdExtZvl() const { return ZvlLen != ExtZvl::NotSet; }
   bool hasStdExtZfhmin() const { return HasStdExtZfhmin; }
   bool hasStdExtZfh() const { return HasStdExtZfh; }
+  bool hasStdExtZbkb() const { return HasStdExtZbkb; }
   bool is64Bit() const { return HasRV64; }
   bool isRV32E() const { return IsRV32E; }
   bool enableLinkerRelax() const { return EnableLinkerRelax; }

@@ -143,6 +143,26 @@ def HasStdExtZbbOrZbp
                                    "'Zbb' (Base 'B' Instructions) or "
                                    "'Zbp' (Permutation 'B' Instructions)">;
 
+def FeatureStdExtZbkb
+    : SubtargetFeature<"zbkb", "HasStdExtZbkb", "true",
+                       "'Zbkb' (Bitmanip instructions for Cryptography)">;
+def HasStdExtZbkb : Predicate<"Subtarget->hasStdExtZbkb()">,
+                             AssemblerPredicate<(all_of FeatureStdExtZbkb),
+                             "'Zbkb' (Bitmanip instructions for Cryptography)">;
+
+def HasStdExtZbpOrZbkb
+    : Predicate<"Subtarget->hasStdExtZbp() || Subtarget->hasStdExtZbkb()">,
+                AssemblerPredicate<(any_of FeatureStdExtZbp, FeatureStdExtZbkb),
+                                   "'Zbp' (Permutation 'B' Instructions) or "
+                                   "'Zbkb' (Bitmanip instructions for Cryptography)">;
+
+def HasStdExtZbbOrZbpOrZbkb
+    : Predicate<"Subtarget->hasStdExtZbb() || Subtarget->hasStdExtZbp() || Subtarget->hasStdExtZbkb()">,
+                AssemblerPredicate<(any_of FeatureStdExtZbb, FeatureStdExtZbp, FeatureStdExtZbkb),
+                                   "'Zbb' (Base 'B' Instructions) or "
+                                   "'Zbp' (Permutation 'B' Instructions) or "
+                                   "'Zbkb' (Bitmanip instructions for Cryptography)">;
+
 def FeatureNoRVCHints
     : SubtargetFeature<"no-rvc-hints", "EnableRVCHintInstrs", "false",
                        "Disable RVC Hint Instructions.">;
@@ -200,12 +220,12 @@ def HasVInstructions    : Predicate<"Subtarget->hasVInstructions()">,
           (any_of FeatureStdExtZve32x),
           "'V' (Vector Extension for Application Processors), 'Zve32x' or "
           "'Zve64x' (Vector Extensions for Embedded Processors)">;
-def HasVInstructionsI64 : Predicate<"Subtarget->hasStdExtZve64x()">,
+def HasVInstructionsI64 : Predicate<"Subtarget->hasVInstructionsI64()">,
       AssemblerPredicate<
           (any_of FeatureStdExtZve64x),
           "'V' (Vector Extension for Application Processors) or 'Zve64x' "
           "(Vector Extensions for Embedded Processors)">;
-def HasVInstructionsAnyF : Predicate<"Subtarget->hasStdExtZve32f()">,
+def HasVInstructionsAnyF : Predicate<"Subtarget->hasVInstructionsAnyF()">,
       AssemblerPredicate<
           (any_of FeatureStdExtZve32f),
           "'V' (Vector Extension for Application Processors), 'Zve32f', "
