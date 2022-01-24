@@ -3058,9 +3058,8 @@ static SDValue combineADDCARRYDiamond(DAGCombiner &Combiner, SelectionDAG &DAG,
 //
 // Our goal is to identify A, B, and CarryIn and produce ADDCARRY/SUBCARRY with
 // a single path for carry/borrow out propagation:
-static SDValue combineCarryDiamond(DAGCombiner &Combiner, SelectionDAG &DAG,
-                                   const TargetLowering &TLI, SDValue Carry0,
-                                   SDValue Carry1, SDNode *N) {
+static SDValue combineCarryDiamond(SelectionDAG &DAG, const TargetLowering &TLI,
+                                   SDValue Carry0, SDValue Carry1, SDNode *N) {
   if (Carry0.getResNo() != 1 || Carry1.getResNo() != 1)
     return SDValue();
   unsigned Opcode = Carry0.getOpcode();
@@ -5879,7 +5878,7 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
     if (SDValue Shuffle = XformToShuffleWithZero(N))
       return Shuffle;
 
-  if (SDValue Combined = combineCarryDiamond(*this, DAG, TLI, N0, N1, N))
+  if (SDValue Combined = combineCarryDiamond(DAG, TLI, N0, N1, N))
     return Combined;
 
   // fold (and (or x, C), D) -> D if (C & D) == D
@@ -6676,7 +6675,7 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
   if (SDValue Combined = visitORLike(N0, N1, N))
     return Combined;
 
-  if (SDValue Combined = combineCarryDiamond(*this, DAG, TLI, N0, N1, N))
+  if (SDValue Combined = combineCarryDiamond(DAG, TLI, N0, N1, N))
     return Combined;
 
   // Recognize halfword bswaps as (bswap + rotl 16) or (bswap + shl 16)
@@ -8173,7 +8172,7 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
   if (SimplifyDemandedBits(SDValue(N, 0)))
     return SDValue(N, 0);
 
-  if (SDValue Combined = combineCarryDiamond(*this, DAG, TLI, N0, N1, N))
+  if (SDValue Combined = combineCarryDiamond(DAG, TLI, N0, N1, N))
     return Combined;
 
   return SDValue();
@@ -9375,6 +9374,17 @@ SDValue DAGCombiner::visitBSWAP(SDNode *N) {
   // fold (bswap (bswap x)) -> x
   if (N0.getOpcode() == ISD::BSWAP)
     return N0->getOperand(0);
+
+  // Canonicalize bswap(bitreverse(x)) -> bitreverse(bswap(x)). If bitreverse
+  // isn't supported, it will be expanded to bswap followed by a manual reversal
+  // of bits in each byte. By placing bswaps before bitreverse, we can remove
+  // the two bswaps if the bitreverse gets expanded.
+  if (N0.getOpcode() == ISD::BITREVERSE && N0.hasOneUse()) {
+    SDLoc DL(N);
+    SDValue BSwap = DAG.getNode(ISD::BSWAP, DL, VT, N0.getOperand(0));
+    return DAG.getNode(ISD::BITREVERSE, DL, VT, BSwap);
+  }
+
   return SDValue();
 }
 

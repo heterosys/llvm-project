@@ -307,6 +307,30 @@ def Canonicalizer : Pass<"canonicalize"> {
   ] # RewritePassUtils.options;
 }
 
+def ControlFlowSink : Pass<"control-flow-sink"> {
+  let summary = "Sink operations into conditional blocks";
+  let description = [{
+    This pass implements control-flow sink on operations that implement
+    `RegionBranchOpInterface` by moving dominating operations whose only uses
+    are in a conditionally-executed regions into those regions so that
+    executions paths where their results are not needed do not perform
+    unnecessary computations.
+
+    This is similar (but opposite) to loop-invariant code motion, which hoists
+    operations out of regions executed more than once. The implementation of
+    control-flow sink uses a simple and conversative cost model: operations are
+    never duplicated and are only moved into singly-executed regions.
+
+    It is recommended to run canonicalization first to remove unreachable
+    blocks: ops in unreachable blocks may prevent other operations from being
+    sunk as they may contain uses of their results
+  }];
+  let constructor = "::mlir::createControlFlowSinkPass()";
+  let statistics = [
+    Statistic<"numSunk", "num-sunk", "Number of operations sunk">,
+  ];
+}
+
 def CSE : Pass<"cse"> {
   let summary = "Eliminate common sub-expressions";
   let description = [{
