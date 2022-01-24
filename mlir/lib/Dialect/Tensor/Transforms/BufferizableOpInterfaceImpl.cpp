@@ -1,4 +1,4 @@
-//===- TensorInterfaceImpl.cpp - Tensor Impl. of BufferizableOpInterface --===//
+//===- BufferizableOpInterfaceImpl.cpp - Impl. of BufferizableOpInterface -===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Linalg/ComprehensiveBufferize/TensorInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -15,14 +15,11 @@
 
 using namespace mlir;
 using namespace mlir::bufferization;
+using namespace mlir::tensor;
 
 namespace mlir {
-namespace linalg {
-namespace comprehensive_bufferize {
-namespace tensor_ext {
-
-using tensor::ExtractSliceOp;
-using tensor::InsertSliceOp;
+namespace tensor {
+namespace {
 
 struct CastOpInterface
     : public BufferizableOpInterface::ExternalModel<CastOpInterface,
@@ -466,19 +463,46 @@ struct InsertSliceOpInterface
   }
 };
 
-} // namespace tensor_ext
-} // namespace comprehensive_bufferize
-} // namespace linalg
+/// Bufferization of tensor.rank. Replace with memref.rank.
+struct RankOpInterface
+    : public BufferizableOpInterface::ExternalModel<RankOpInterface,
+                                                    tensor::RankOp> {
+  bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
+                              const BufferizationState &state) const {
+    return true;
+  }
+
+  bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
+                               const BufferizationState &state) const {
+    return false;
+  }
+
+  OpResult getAliasingOpResult(Operation *op, OpOperand &opOperand,
+                               const BufferizationState &state) const {
+    return OpResult();
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationState &state) const {
+    auto rankOp = cast<tensor::RankOp>(op);
+    Value v = *state.getBuffer(rewriter, rankOp->getOpOperand(0) /*source*/);
+    replaceOpWithNewBufferizedOp<memref::RankOp>(rewriter, op, rankOp.getType(),
+                                                 v);
+    return success();
+  }
+};
+
+} // namespace
+} // namespace tensor
 } // namespace mlir
 
-void mlir::linalg::comprehensive_bufferize::tensor_ext::
-    registerBufferizableOpInterfaceExternalModels(DialectRegistry &registry) {
-  registry.addOpInterface<tensor::CastOp, tensor_ext::CastOpInterface>();
-  registry.addOpInterface<tensor::DimOp, tensor_ext::DimOpInterface>();
-  registry.addOpInterface<tensor::ExtractSliceOp,
-                          tensor_ext::ExtractSliceOpInterface>();
-  registry.addOpInterface<tensor::ExtractOp, tensor_ext::ExtractOpInterface>();
-  registry.addOpInterface<tensor::InsertOp, tensor_ext::InsertOpInterface>();
-  registry.addOpInterface<tensor::InsertSliceOp,
-                          tensor_ext::InsertSliceOpInterface>();
+void mlir::tensor::registerBufferizableOpInterfaceExternalModels(
+    DialectRegistry &registry) {
+  registry.addOpInterface<CastOp, CastOpInterface>();
+  registry.addOpInterface<DimOp, DimOpInterface>();
+  registry.addOpInterface<ExtractSliceOp, ExtractSliceOpInterface>();
+  registry.addOpInterface<ExtractOp, ExtractOpInterface>();
+  registry.addOpInterface<InsertOp, InsertOpInterface>();
+  registry.addOpInterface<InsertSliceOp, InsertSliceOpInterface>();
+  registry.addOpInterface<RankOp, RankOpInterface>();
 }
