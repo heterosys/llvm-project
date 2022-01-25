@@ -4470,15 +4470,15 @@ SDValue DAGCombiner::visitMULHS(SDNode *N) {
       return FoldedVOp;
 
     // fold (mulhs x, 0) -> 0
-    // do not return N0/N1, because undef node may exist.
-    if (ISD::isConstantSplatVectorAllZeros(N0.getNode()) ||
-        ISD::isConstantSplatVectorAllZeros(N1.getNode()))
+    // do not return N1, because undef node may exist.
+    if (ISD::isConstantSplatVectorAllZeros(N1.getNode()))
       return DAG.getConstant(0, DL, VT);
   }
 
   // fold (mulhs x, 0) -> 0
   if (isNullConstant(N1))
     return N1;
+
   // fold (mulhs x, 1) -> (sra x, size(x)-1)
   if (isOneConstant(N1))
     return DAG.getNode(ISD::SRA, DL, N0.getValueType(), N0,
@@ -4530,18 +4530,19 @@ SDValue DAGCombiner::visitMULHU(SDNode *N) {
       return FoldedVOp;
 
     // fold (mulhu x, 0) -> 0
-    // do not return N0/N1, because undef node may exist.
-    if (ISD::isConstantSplatVectorAllZeros(N0.getNode()) ||
-        ISD::isConstantSplatVectorAllZeros(N1.getNode()))
+    // do not return N1, because undef node may exist.
+    if (ISD::isConstantSplatVectorAllZeros(N1.getNode()))
       return DAG.getConstant(0, DL, VT);
   }
 
   // fold (mulhu x, 0) -> 0
   if (isNullConstant(N1))
     return N1;
+
   // fold (mulhu x, 1) -> 0
   if (isOneConstant(N1))
     return DAG.getConstant(0, DL, N0.getValueType());
+
   // fold (mulhu x, undef) -> 0
   if (N0.isUndef() || N1.isUndef())
     return DAG.getConstant(0, DL, VT);
@@ -5815,18 +5816,12 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
       return FoldedVOp;
 
     // fold (and x, 0) -> 0, vector edition
-    if (ISD::isConstantSplatVectorAllZeros(N0.getNode()))
-      // do not return N0, because undef node may exist in N0
-      return DAG.getConstant(APInt::getZero(N0.getScalarValueSizeInBits()),
-                             SDLoc(N), N0.getValueType());
     if (ISD::isConstantSplatVectorAllZeros(N1.getNode()))
       // do not return N1, because undef node may exist in N1
       return DAG.getConstant(APInt::getZero(N1.getScalarValueSizeInBits()),
                              SDLoc(N), N1.getValueType());
 
     // fold (and x, -1) -> x, vector edition
-    if (ISD::isConstantSplatVectorAllOnes(N0.getNode()))
-      return N1;
     if (ISD::isConstantSplatVectorAllOnes(N1.getNode()))
       return N0;
 
@@ -8963,6 +8958,10 @@ SDValue DAGCombiner::visitSRA(SDNode *N) {
   // it matches the appropriate pattern detected in combineShiftToMULH.
   if (SDValue MULH = combineShiftToMULH(N, DAG, TLI))
     return MULH;
+
+  // Attempt to convert a sra of a load into a narrower sign-extending load.
+  if (SDValue NarrowLoad = reduceLoadWidth(N))
+    return NarrowLoad;
 
   return SDValue();
 }
@@ -12151,10 +12150,10 @@ SDValue DAGCombiner::reduceLoadWidth(SDNode *N) {
   if (Opc == ISD::SIGN_EXTEND_INREG) {
     ExtType = ISD::SEXTLOAD;
     ExtVT = cast<VTSDNode>(N->getOperand(1))->getVT();
-  } else if (Opc == ISD::SRL) {
-    // Another special-case: SRL is basically zero-extending a narrower value,
-    // or it may be shifting a higher subword, half or byte into the lowest
-    // bits.
+  } else if (Opc == ISD::SRL || Opc == ISD::SRA) {
+    // Another special-case: SRL/SRA is basically zero/sign-extending a narrower
+    // value, or it may be shifting a higher subword, half or byte into the
+    // lowest bits.
 
     // Only handle shift with constant shift amount, and the shiftee must be a
     // load.
@@ -12168,13 +12167,16 @@ SDValue DAGCombiner::reduceLoadWidth(SDNode *N) {
     uint64_t MemoryWidth = LN->getMemoryVT().getScalarSizeInBits();
     if (MemoryWidth <= ShAmt)
       return SDValue();
-    // Attempt to fold away the SRL by using ZEXTLOAD.
-    ExtType = ISD::ZEXTLOAD;
+    // Attempt to fold away the SRL by using ZEXTLOAD and SRA by using SEXTLOAD.
+    ExtType = Opc == ISD::SRL ? ISD::ZEXTLOAD : ISD::SEXTLOAD;
     ExtVT = EVT::getIntegerVT(*DAG.getContext(), MemoryWidth - ShAmt);
     // If original load is a SEXTLOAD then we can't simply replace it by a
     // ZEXTLOAD (we could potentially replace it by a more narrow SEXTLOAD
-    // followed by a ZEXT, but that is not handled at the moment).
-    if (LN->getExtensionType() == ISD::SEXTLOAD)
+    // followed by a ZEXT, but that is not handled at the moment). Similarly if
+    // the original load is a ZEXTLOAD and we want to use a SEXTLOAD.
+    if ((LN->getExtensionType() == ISD::SEXTLOAD ||
+         LN->getExtensionType() == ISD::ZEXTLOAD) &&
+        LN->getExtensionType() != ExtType)
       return SDValue();
   } else if (Opc == ISD::AND) {
     // An AND with a constant mask is the same as a truncate + zero-extend.
