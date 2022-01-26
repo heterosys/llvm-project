@@ -39,18 +39,13 @@ cl::opt<bool>
     MatchCallsByName("ir-sim-calls-by-name", cl::init(false), cl::ReallyHidden,
                      cl::desc("only allow matching call instructions if the "
                               "name and type signature match."));
-
-cl::opt<bool>
-    DisableIntrinsics("no-ir-sim-intrinsics", cl::init(false), cl::ReallyHidden,
-                      cl::desc("Don't match or outline intrinsics"));
+} // namespace llvm
 
 IRInstructionData::IRInstructionData(Instruction &I, bool Legality,
                                      IRInstructionDataList &IDList)
     : Inst(&I), Legal(Legality), IDL(&IDList) {
   initializeInstruction();
 }
-
-} // namespace llvm
 
 void IRInstructionData::initializeInstruction() {
   // We check for whether we have a comparison instruction.  If it is, we
@@ -74,6 +69,12 @@ void IRInstructionData::initializeInstruction() {
 
     OperVals.push_back(OI.get());
   }
+
+  // We capture the incoming BasicBlocks as values as well as the incoming
+  // Values in order to check for structural similarity.
+  if (PHINode *PN = dyn_cast<PHINode>(Inst))
+    for (BasicBlock *BB : PN->blocks())
+      OperVals.push_back(BB);
 }
 
 IRInstructionData::IRInstructionData(IRInstructionDataList &IDList)
@@ -110,6 +111,34 @@ void IRInstructionData::setCalleeName(bool MatchByName) {
   CalleeName = "";
   if (!CI->isIndirectCall() && MatchByName)
     CalleeName = CI->getCalledFunction()->getName().str();
+}
+
+void IRInstructionData::setPHIPredecessors(
+    DenseMap<BasicBlock *, unsigned> &BasicBlockToInteger) {
+  assert(isa<PHINode>(Inst) && "Instruction must be phi node");
+
+  PHINode *PN = cast<PHINode>(Inst);
+  DenseMap<BasicBlock *, unsigned>::iterator BBNumIt;
+
+  BBNumIt = BasicBlockToInteger.find(PN->getParent());
+  assert(BBNumIt != BasicBlockToInteger.end() &&
+         "Could not find location for BasicBlock!");
+
+  int CurrentBlockNumber = static_cast<int>(BBNumIt->second);
+
+  // Convert the incoming blocks of the PHINode to an integer value, based on
+  // the relative distances between the current block and the incoming block.
+  for (unsigned Idx = 0; Idx < PN->getNumIncomingValues(); Idx++) {
+    BasicBlock *Incoming = PN->getIncomingBlock(Idx);
+    BBNumIt = BasicBlockToInteger.find(Incoming);
+    assert(BBNumIt != BasicBlockToInteger.end() &&
+           "Could not find number for BasicBlock!");
+    int OtherBlockNumber = static_cast<int>(BBNumIt->second);
+
+    int Relative = OtherBlockNumber - CurrentBlockNumber;
+    RelativeBlockLocations.push_back(Relative);
+    RelativeBlockLocations.push_back(Relative);
+  }
 }
 
 CmpInst::Predicate IRInstructionData::predicateForConsistency(CmpInst *CI) {
@@ -273,6 +302,9 @@ unsigned IRInstructionMapper::mapToLegalUnsigned(
 
   if (isa<CallInst>(*It))
     ID->setCalleeName(EnableMatchCallsByName);
+
+  if (isa<PHINode>(*It))
+    ID->setPHIPredecessors(BasicBlockToInteger);
 
   // Add to the instruction list
   bool WasInserted;
@@ -1107,7 +1139,6 @@ SimilarityGroupList &IRSimilarityIdentifier::findSimilarity(
   Mapper.InstClassifier.EnableBranches = this->EnableBranches;
   Mapper.InstClassifier.EnableIndirectCalls = EnableIndirectCalls;
   Mapper.EnableMatchCallsByName = EnableMatchingCallsByName;
-  Mapper.InstClassifier.EnableIntrinsics = EnableIntrinsics;
 
   populateMapper(Modules, InstrList, IntegerMapping);
   findCandidates(InstrList, IntegerMapping);
@@ -1120,7 +1151,6 @@ SimilarityGroupList &IRSimilarityIdentifier::findSimilarity(Module &M) {
   Mapper.InstClassifier.EnableBranches = this->EnableBranches;
   Mapper.InstClassifier.EnableIndirectCalls = EnableIndirectCalls;
   Mapper.EnableMatchCallsByName = EnableMatchingCallsByName;
-  Mapper.InstClassifier.EnableIntrinsics = EnableIntrinsics;
 
   std::vector<IRInstructionData *> InstrList;
   std::vector<unsigned> IntegerMapping;
@@ -1142,7 +1172,7 @@ IRSimilarityIdentifierWrapperPass::IRSimilarityIdentifierWrapperPass()
 
 bool IRSimilarityIdentifierWrapperPass::doInitialization(Module &M) {
   IRSI.reset(new IRSimilarityIdentifier(!DisableBranches, !DisableIndirectCalls,
-                                        MatchCallsByName, !DisableIntrinsics));
+                                        MatchCallsByName));
   return false;
 }
 
@@ -1159,8 +1189,9 @@ bool IRSimilarityIdentifierWrapperPass::runOnModule(Module &M) {
 AnalysisKey IRSimilarityAnalysis::Key;
 IRSimilarityIdentifier IRSimilarityAnalysis::run(Module &M,
                                                  ModuleAnalysisManager &) {
+
   auto IRSI = IRSimilarityIdentifier(!DisableBranches, !DisableIndirectCalls,
-                                     MatchCallsByName, !DisableIntrinsics);
+                                     MatchCallsByName);
   IRSI.findSimilarity(M);
   return IRSI;
 }
