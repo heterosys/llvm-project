@@ -340,10 +340,11 @@ template <class ELFT> void OutputSection::maybeCompress() {
   // Write uncompressed data to a temporary zero-initialized buffer.
   auto buf = std::make_unique<uint8_t[]>(size);
   writeTo<ELFT>(buf.get());
-  // We chose 1 as the default compression level because it is the fastest. If
-  // -O2 is given, we use level 6 to compress debug info more by ~15%. We found
-  // that level 7 to 9 doesn't make much difference (~1% more compression) while
-  // they take significant amount of time (~2x), so level 6 seems enough.
+  // We chose 1 (Z_BEST_SPEED) as the default compression level because it is
+  // the fastest. If -O2 is given, we use level 6 to compress debug info more by
+  // ~15%. We found that level 7 to 9 doesn't make much difference (~1% more
+  // compression) while they take significant amount of time (~2x), so level 6
+  // seems enough.
   const int level = config->optimize >= 2 ? 6 : Z_BEST_SPEED;
 
   // Split input into 1-MiB shards.
@@ -351,7 +352,7 @@ template <class ELFT> void OutputSection::maybeCompress() {
   const size_t numShards = (size + shardSize - 1) / shardSize;
   auto shardsIn = std::make_unique<ArrayRef<uint8_t>[]>(numShards);
   for (size_t i = 0, start = 0, end; start != size; ++i, start = end) {
-    end = std::min(start + shardSize, size);
+    end = std::min(start + shardSize, (size_t)size);
     shardsIn[i] = makeArrayRef<uint8_t>(buf.get() + start, end - start);
   }
 
