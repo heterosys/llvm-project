@@ -7668,11 +7668,6 @@ void BoUpSLP::scheduleBlock(BlockScheduling *BS) {
   }
   BS->initialFillReadyList(ReadyInsts);
 
-  assert((!ReadyInsts.empty() ||
-          (VectorizableTree.size() == 1 &&
-           VectorizableTree[0]->State == TreeEntry::NeedToGather)) &&
-         "why no ready insts from scheduleable tree?");
-
   Instruction *LastScheduledInst = BS->ScheduleEnd;
 
   // Do the "real" scheduling.
@@ -7685,11 +7680,8 @@ void BoUpSLP::scheduleBlock(BlockScheduling *BS) {
     for (ScheduleData *BundleMember = picked; BundleMember;
          BundleMember = BundleMember->NextInBundle) {
       Instruction *pickedInst = BundleMember->Inst;
-      if (pickedInst->getNextNode() != LastScheduledInst) {
-        BS->BB->getInstList().remove(pickedInst);
-        BS->BB->getInstList().insert(LastScheduledInst->getIterator(),
-                                     pickedInst);
-      }
+      if (pickedInst->getNextNode() != LastScheduledInst)
+        pickedInst->moveBefore(LastScheduledInst);
       LastScheduledInst = pickedInst;
     }
 
