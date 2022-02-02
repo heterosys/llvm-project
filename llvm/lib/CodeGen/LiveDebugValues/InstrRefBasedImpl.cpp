@@ -2796,6 +2796,11 @@ void InstrRefBasedLDV::placePHIsForSingleVarDefinition(
   auto ValueIt = VLocs.Vars.find(Var);
   const DbgValue &Value = ValueIt->second;
 
+  // If it's an explicit assignment of "undef", that means there is no location
+  // anyway, anywhere.
+  if (Value.Kind == DbgValue::Undef)
+    return;
+
   // Assign the variable value to entry to each dominated block that's in scope.
   // Skip the definition block -- it's assigned the variable value in the middle
   // of the block somewhere.
@@ -2924,8 +2929,15 @@ bool InstrRefBasedLDV::depthFirstVLocAndEmit(
   VTracker = nullptr;
 
   // No scopes? No variable locations.
-  if (!LS.getCurrentFunctionScope())
+  if (!LS.getCurrentFunctionScope()) {
+    // FIXME: this is a sticking plaster to prevent a memory leak, these
+    // pointers will be automagically freed by being unique pointers, shortly.
+    for (unsigned int I = 0; I < MaxNumBlocks; ++I) {
+      delete[] MInLocs[I];
+      delete[] MOutLocs[I];
+    }
     return false;
+  }
 
   // Build map from block number to the last scope that uses the block.
   SmallVector<unsigned, 16> EjectionMap;
@@ -3026,6 +3038,16 @@ bool InstrRefBasedLDV::depthFirstVLocAndEmit(
   for (auto *MBB : ArtificialBlocks)
     if (MOutLocs[MBB->getNumber()])
       EjectBlock(*MBB);
+
+  // Finally, there might have been gaps in the block numbering, from dead
+  // blocks being deleted or folded. In those scenarios, we might allocate a
+  // block-table that's never ejected, meaning we have to free it at the end.
+  for (unsigned int I = 0; I < MaxNumBlocks; ++I) {
+    if (MInLocs[I]) {
+      delete[] MInLocs[I];
+      delete[] MOutLocs[I];
+    }
+  }
 
   return emitTransfers(AllVarsNumbering);
 }
