@@ -254,7 +254,7 @@ void BitcodeCompiler::add(BitcodeFile &f) {
     // Identify symbols exported dynamically, and that therefore could be
     // referenced by a shared library not visible to the linker.
     r.ExportDynamic = sym->computeBinding() != STB_LOCAL &&
-                      (sym->isExportDynamic(sym->kind()) ||
+                      (config->shared || config->exportDynamic ||
                        sym->exportDynamic || sym->inDynamicList);
     const auto *dr = dyn_cast<Defined>(sym);
     r.FinalDefinitionInLinkageUnit =
@@ -273,7 +273,7 @@ void BitcodeCompiler::add(BitcodeFile &f) {
     // We tell LTO to not apply interprocedural optimization for wrapped
     // (with --wrap) symbols because otherwise LTO would inline them while
     // their values are still not final.
-    r.LinkerRedefined = !sym->canInline;
+    r.LinkerRedefined = sym->scriptDefined;
   }
   checkError(ltoObj->add(std::move(f.obj), resols));
 }

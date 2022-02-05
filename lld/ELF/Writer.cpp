@@ -619,12 +619,8 @@ template <class ELFT> static void markUsedLocalSymbols() {
   // See MarkLive<ELFT>::resolveReloc().
   if (config->gcSections)
     return;
-  // Without --gc-sections, the field is initialized with "true".
-  // Drop the flag first and then rise for symbols referenced in relocations.
   for (ELFFileBase *file : objectFiles) {
     ObjFile<ELFT> *f = cast<ObjFile<ELFT>>(file);
-    for (Symbol *b : f->getLocalSymbols())
-      b->used = false;
     for (InputSectionBase *s : f->getSections()) {
       InputSection *isec = dyn_cast_or_null<InputSection>(s);
       if (!isec)
@@ -643,7 +639,7 @@ static bool shouldKeepInSymtab(const Defined &sym) {
 
   // If --emit-reloc or -r is given, preserve symbols referenced by relocations
   // from live sections.
-  if (config->copyRelocs && sym.used)
+  if (sym.used)
     return true;
 
   // Exclude local symbols pointing to .ARM.exidx sections.
@@ -679,16 +675,11 @@ static bool includeInSymtab(const Symbol &b) {
     if (!sec)
       return true;
 
-    // Exclude symbols pointing to garbage-collected sections.
-    if (isa<InputSectionBase>(sec) && !sec->isLive())
-      return false;
-
     if (auto *s = dyn_cast<MergeInputSection>(sec))
-      if (!s->getSectionPiece(d->value)->live)
-        return false;
-    return true;
+      return s->getSectionPiece(d->value)->live;
+    return sec->isLive();
   }
-  return b.used;
+  return b.used || !config->gcSections;
 }
 
 // Local symbols are not in the linker's symbol table. This function scans

@@ -40,8 +40,6 @@ void SymbolTable::wrap(Symbol *sym, Symbol *real, Symbol *wrap) {
   idx2 = idx1;
   idx1 = idx3;
 
-  if (real->exportDynamic)
-    sym->exportDynamic = true;
   if (!real->isUsedInRegularObj && sym->isUndefined())
     sym->isUsedInRegularObj = false;
 
@@ -91,7 +89,6 @@ Symbol *SymbolTable::insert(StringRef name) {
   sym->isUsedInRegularObj = false;
   sym->exportDynamic = false;
   sym->inDynamicList = false;
-  sym->canInline = true;
   sym->referenced = false;
   sym->traced = false;
   sym->scriptDefined = false;

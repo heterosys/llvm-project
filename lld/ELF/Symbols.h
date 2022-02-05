@@ -126,11 +126,6 @@ public:
   // exported into .dynsym.
   uint8_t inDynamicList : 1;
 
-  // False if LTO shouldn't inline whatever this symbol points to. If a symbol
-  // is overwritten after LTO, LTO shouldn't inline the symbol because it
-  // doesn't know the final contents of the symbol.
-  uint8_t canInline : 1;
-
   // Used to track if there has been at least one undefined reference to the
   // symbol. For Undefined and SharedSymbol, the binding may change to STB_WEAK
   // if the first undefined reference from a non-shared object is weak.
@@ -228,10 +223,6 @@ public:
   // non-lazy object causes a runtime error.
   void extract() const;
 
-  static bool isExportDynamic(Kind k) {
-    return k == SharedKind || config->shared || config->exportDynamic;
-  }
-
 private:
   void resolveUndefined(const Undefined &other);
   void resolveCommon(const CommonSymbol &other);
@@ -250,10 +241,9 @@ protected:
         binding(binding), type(type), stOther(stOther), symbolKind(k),
         visibility(stOther & 3),
         isUsedInRegularObj(!file || file->kind() == InputFile::ObjKind),
-        exportDynamic(isExportDynamic(k)), inDynamicList(false),
-        canInline(false), referenced(false), traced(false),
-        hasVersionSuffix(false), isInIplt(false), gotInIgot(false),
-        isPreemptible(false), used(!config->gcSections), folded(false),
+        exportDynamic(false), inDynamicList(false), referenced(false),
+        traced(false), hasVersionSuffix(false), isInIplt(false),
+        gotInIgot(false), isPreemptible(false), used(false), folded(false),
         needsTocRestore(false), scriptDefined(false), needsCopy(false),
         needsGot(false), needsPlt(false), needsTlsDesc(false),
         needsTlsGd(false), needsTlsGdToIe(false), needsTlsLd(false),
@@ -284,7 +274,10 @@ public:
   // PPC64 toc pointer.
   uint8_t needsTocRestore : 1;
 
-  // True if this symbol is defined by a linker script.
+  // True if this symbol is defined by a symbol assignment or wrapped by --wrap.
+  //
+  // LTO shouldn't inline the symbol because it doesn't know the final content
+  // of the symbol.
   uint8_t scriptDefined : 1;
 
   // True if this symbol needs a canonical PLT entry, or (during
@@ -330,7 +323,9 @@ public:
   Defined(InputFile *file, StringRef name, uint8_t binding, uint8_t stOther,
           uint8_t type, uint64_t value, uint64_t size, SectionBase *section)
       : Symbol(DefinedKind, file, name, binding, stOther, type), value(value),
-        size(size), section(section) {}
+        size(size), section(section) {
+    exportDynamic = config->shared || config->exportDynamic;
+  }
 
   static bool classof(const Symbol *s) { return s->isDefined(); }
 
@@ -365,7 +360,9 @@ public:
   CommonSymbol(InputFile *file, StringRef name, uint8_t binding,
                uint8_t stOther, uint8_t type, uint64_t alignment, uint64_t size)
       : Symbol(CommonKind, file, name, binding, stOther, type),
-        alignment(alignment), size(size) {}
+        alignment(alignment), size(size) {
+    exportDynamic = config->shared || config->exportDynamic;
+  }
 
   static bool classof(const Symbol *s) { return s->isCommon(); }
 
@@ -396,6 +393,7 @@ public:
       : Symbol(SharedKind, &file, name, binding, stOther, type), value(value),
         size(size), alignment(alignment) {
     this->verdefIndex = verdefIndex;
+    exportDynamic = true;
     // GNU ifunc is a mechanism to allow user-supplied functions to
     // resolve PLT slot values at load-time. This is contrary to the
     // regular symbol resolution scheme in which symbols are resolved just
@@ -588,7 +586,6 @@ void Symbol::replace(const Symbol &newSym) {
   isUsedInRegularObj = old.isUsedInRegularObj;
   exportDynamic = old.exportDynamic;
   inDynamicList = old.inDynamicList;
-  canInline = old.canInline;
   referenced = old.referenced;
   traced = old.traced;
   hasVersionSuffix = old.hasVersionSuffix;
