@@ -77,17 +77,6 @@ protected:
   uint32_t nameSize;
 
 public:
-  // A symAux index used to access GOT/PLT entry indexes. This is allocated in
-  // postScanRelocations().
-  uint32_t auxIdx = -1;
-  uint32_t dynsymIndex = 0;
-
-  // This field is a index to the symbol's version definition.
-  uint16_t verdefIndex = -1;
-
-  // Version definition index.
-  uint16_t versionId;
-
   // Symbol binding. This is not overwritten by replace() to track
   // changes during resolution. In particular:
   //  - An undefined weak is still weak when it resolves to a shared library.
@@ -101,15 +90,27 @@ public:
 
   uint8_t symbolKind;
 
+  // The partition whose dynamic symbol table contains this symbol's definition.
+  uint8_t partition = 1;
+
   // Symbol visibility. This is the computed minimum visibility of all
   // observed non-DSO symbols.
   uint8_t visibility : 2;
+
+  // True if this symbol is preemptible at load time.
+  uint8_t isPreemptible : 1;
 
   // True if the symbol was used for linking and thus need to be added to the
   // output file's symbol table. This is true for all symbols except for
   // unreferenced DSO symbols, lazy (archive) symbols, and bitcode symbols that
   // are unreferenced except by other bitcode objects.
   uint8_t isUsedInRegularObj : 1;
+
+  // True if an undefined or shared symbol is used from a live section.
+  //
+  // NOTE: In Writer.cpp the field is used to mark local defined symbols
+  // which are referenced by relocations when -r or --emit-relocs is given.
+  uint8_t used : 1;
 
   // Used by a Defined symbol with protected or default visibility, to record
   // whether it is required to be exported into .dynsym. This is set when any of
@@ -239,15 +240,15 @@ protected:
          uint8_t stOther, uint8_t type)
       : file(file), nameData(name.data()), nameSize(name.size()),
         binding(binding), type(type), stOther(stOther), symbolKind(k),
-        visibility(stOther & 3),
+        visibility(stOther & 3), isPreemptible(false),
         isUsedInRegularObj(!file || file->kind() == InputFile::ObjKind),
-        exportDynamic(false), inDynamicList(false), referenced(false),
-        traced(false), hasVersionSuffix(false), isInIplt(false),
-        gotInIgot(false), isPreemptible(false), used(false), folded(false),
+        used(false), exportDynamic(false), inDynamicList(false),
+        referenced(false), traced(false), hasVersionSuffix(false),
+        isInIplt(false), gotInIgot(false), folded(false),
         needsTocRestore(false), scriptDefined(false), needsCopy(false),
         needsGot(false), needsPlt(false), needsTlsDesc(false),
-        needsTlsGd(false), needsTlsGdToIe(false), needsTlsLd(false),
-        needsGotDtprel(false), needsTlsIe(false), hasDirectReloc(false) {}
+        needsTlsGd(false), needsTlsGdToIe(false), needsGotDtprel(false),
+        needsTlsIe(false), hasDirectReloc(false) {}
 
 public:
   // True if this symbol is in the Iplt sub-section of the Plt and the Igot
@@ -257,15 +258,6 @@ public:
   // True if this symbol needs a GOT entry and its GOT entry is actually in
   // Igot. This will be true only for certain non-preemptible ifuncs.
   uint8_t gotInIgot : 1;
-
-  // True if this symbol is preemptible at load time.
-  uint8_t isPreemptible : 1;
-
-  // True if an undefined or shared symbol is used from a live section.
-  //
-  // NOTE: In Writer.cpp the field is used to mark local defined symbols
-  // which are referenced by relocations when -r or --emit-relocs is given.
-  uint8_t used : 1;
 
   // True if defined relative to a section discarded by ICF.
   uint8_t folded : 1;
@@ -291,23 +283,30 @@ public:
   uint8_t needsTlsDesc : 1;
   uint8_t needsTlsGd : 1;
   uint8_t needsTlsGdToIe : 1;
-  uint8_t needsTlsLd : 1;
   uint8_t needsGotDtprel : 1;
   uint8_t needsTlsIe : 1;
   uint8_t hasDirectReloc : 1;
 
+  // A symAux index used to access GOT/PLT entry indexes. This is allocated in
+  // postScanRelocations().
+  uint32_t auxIdx = -1;
+  uint32_t dynsymIndex = 0;
+
+  // This field is a index to the symbol's version definition.
+  uint16_t verdefIndex = -1;
+
+  // Version definition index.
+  uint16_t versionId;
+
   bool needsDynReloc() const {
     return needsCopy || needsGot || needsPlt || needsTlsDesc || needsTlsGd ||
-           needsTlsGdToIe || needsTlsLd || needsGotDtprel || needsTlsIe;
+           needsTlsGdToIe || needsGotDtprel || needsTlsIe;
   }
   void allocateAux() {
     assert(auxIdx == uint32_t(-1));
     auxIdx = symAux.size();
     symAux.emplace_back();
   }
-
-  // The partition whose dynamic symbol table contains this symbol's definition.
-  uint8_t partition = 1;
 
   bool isSection() const { return type == llvm::ELF::STT_SECTION; }
   bool isTls() const { return type == llvm::ELF::STT_TLS; }
@@ -453,8 +452,8 @@ public:
 // --start-lib and --end-lib options.
 class LazyObject : public Symbol {
 public:
-  LazyObject(InputFile &file, StringRef name)
-      : Symbol(LazyObjectKind, &file, name, llvm::ELF::STB_GLOBAL,
+  LazyObject(InputFile &file)
+      : Symbol(LazyObjectKind, &file, {}, llvm::ELF::STB_GLOBAL,
                llvm::ELF::STV_DEFAULT, llvm::ELF::STT_NOTYPE) {
     isUsedInRegularObj = false;
   }
@@ -514,9 +513,9 @@ union SymbolUnion {
 };
 
 // It is important to keep the size of SymbolUnion small for performance and
-// memory usage reasons. 72 bytes is a soft limit based on the size of Defined
+// memory usage reasons. 64 bytes is a soft limit based on the size of Defined
 // on a 64-bit system.
-static_assert(sizeof(SymbolUnion) <= 72, "SymbolUnion too large");
+static_assert(sizeof(SymbolUnion) <= 64, "SymbolUnion too large");
 
 template <typename T> struct AssertSymbol {
   static_assert(std::is_trivially_destructible<T>(),
@@ -535,7 +534,7 @@ static inline void assertSymbols() {
   AssertSymbol<LazyObject>();
 }
 
-void printTraceSymbol(const Symbol *sym);
+void printTraceSymbol(const Symbol &sym, StringRef name);
 
 size_t Symbol::getSymbolSize() const {
   switch (kind()) {
@@ -581,22 +580,24 @@ void Symbol::replace(const Symbol &newSym) {
 
   // old may be a placeholder. The referenced fields must be initialized in
   // SymbolTable::insert.
-  versionId = old.versionId;
+  nameData = old.nameData;
+  nameSize = old.nameSize;
+  partition = old.partition;
   visibility = old.visibility;
+  isPreemptible = old.isPreemptible;
   isUsedInRegularObj = old.isUsedInRegularObj;
   exportDynamic = old.exportDynamic;
   inDynamicList = old.inDynamicList;
   referenced = old.referenced;
   traced = old.traced;
   hasVersionSuffix = old.hasVersionSuffix;
-  isPreemptible = old.isPreemptible;
   scriptDefined = old.scriptDefined;
-  partition = old.partition;
+  versionId = old.versionId;
 
   // Print out a log message if --trace-symbol was specified.
   // This is for debugging.
   if (traced)
-    printTraceSymbol(this);
+    printTraceSymbol(*this, getName());
 }
 
 template <typename... T> Defined *makeDefined(T &&...args) {
