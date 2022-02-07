@@ -1692,12 +1692,13 @@ void elf::postScanRelocations() {
   };
 
   if (config->needsTlsLd && in.got->addTlsIndex()) {
+    static Undefined dummy(nullptr, "", STB_LOCAL, 0, 0);
     if (config->shared)
       mainPart->relaDyn->addReloc(
           {target->tlsModuleIndexRel, in.got.get(), in.got->getTlsIndexOff()});
     else
-      in.got->relocations.push_back({R_ADDEND, target->symbolicRel,
-                                     in.got->getTlsIndexOff(), 1, nullptr});
+      in.got->relocations.push_back(
+          {R_ADDEND, target->symbolicRel, in.got->getTlsIndexOff(), 1, &dummy});
   }
 
   assert(symAux.empty());
