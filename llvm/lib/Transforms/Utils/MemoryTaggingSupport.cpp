@@ -90,10 +90,11 @@ void StackInfoBuilder::visit(Instruction &Inst) {
   if (auto *DVI = dyn_cast<DbgVariableIntrinsic>(&Inst)) {
     for (Value *V : DVI->location_ops()) {
       if (auto *AI = dyn_cast_or_null<AllocaInst>(V)) {
+        if (!IsInterestingAlloca(*AI))
+          continue;
         AllocaInfo &AInfo = Info.AllocasToInstrument[AI];
         auto &DVIVec = AInfo.DbgVariableIntrinsics;
-        if (IsInterestingAlloca(*AI) &&
-            (DVIVec.empty() || DVIVec.back() != DVI))
+        if (DVIVec.empty() || DVIVec.back() != DVI)
           DVIVec.push_back(DVI);
       }
     }

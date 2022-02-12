@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/MSVCPaths.h"
+#include "llvm/WindowsDriver/MSVCPaths.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
@@ -46,7 +46,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 #endif
-#include "llvm/Support/MSVCSetupApi.h"
+#include "llvm/WindowsDriver/MSVCSetupApi.h"
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif

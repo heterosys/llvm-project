@@ -15,7 +15,7 @@
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/ToolChain.h"
-#include "llvm/Support/MSVCPaths.h"
+#include "llvm/WindowsDriver/MSVCPaths.h"
 
 namespace clang {
 namespace driver {

@@ -5149,8 +5149,6 @@ llvm/include/llvm/Support/MemoryBufferRef.h
 llvm/include/llvm/Support/MSP430AttributeParser.h
 llvm/include/llvm/Support/MSP430Attributes.h
 llvm/include/llvm/Support/MSVCErrorWorkarounds.h
-llvm/include/llvm/Support/MSVCPaths.h
-llvm/include/llvm/Support/MSVCSetupApi.h
 llvm/include/llvm/Support/Parallel.h
 llvm/include/llvm/Support/PGOOptions.h
 llvm/include/llvm/Support/PointerLikeTypeTraits.h
@@ -5330,6 +5328,8 @@ llvm/include/llvm/Transforms/Utils/UnifyFunctionExitNodes.h
 llvm/include/llvm/Transforms/Utils/UnifyLoopExits.h
 llvm/include/llvm/Transforms/Utils/ValueMapper.h
 llvm/include/llvm/Transforms/Vectorize/SLPVectorizer.h
+llvm/include/llvm/WindowsDriver/MSVCPaths.h
+llvm/include/llvm/WindowsDriver/MSVCSetupApi.h
 llvm/include/llvm/WindowsManifest/WindowsManifestMerger.h
 llvm/include/llvm/WindowsResource/ResourceScriptToken.h
 llvm/include/llvm/XRay/BlockIndexer.h
@@ -5841,7 +5841,6 @@ llvm/lib/Support/Memory.cpp
 llvm/lib/Support/MemoryBufferRef.cpp
 llvm/lib/Support/MSP430AttributeParser.cpp
 llvm/lib/Support/MSP430Attributes.cpp
-llvm/lib/Support/MSVCPaths.cpp
 llvm/lib/Support/Optional.cpp
 llvm/lib/Support/Parallel.cpp
 llvm/lib/Support/Program.cpp
@@ -6494,6 +6493,7 @@ llvm/lib/Transforms/Vectorize/VPlanTransforms.cpp
 llvm/lib/Transforms/Vectorize/VPlanTransforms.h
 llvm/lib/Transforms/Vectorize/VPlanValue.h
 llvm/lib/Transforms/Vectorize/VPlanVerifier.cpp
+llvm/lib/WindowsDriver/MSVCPaths.cpp
 llvm/lib/WindowsManifest/WindowsManifestMerger.cpp
 llvm/lib/XRay/BlockIndexer.cpp
 llvm/lib/XRay/BlockVerifier.cpp
