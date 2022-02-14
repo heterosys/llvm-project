@@ -77,6 +77,9 @@ Attribute Changes in Clang
 
 - Added support for parameter pack expansion in `clang::annotate`.
 
+- The ``overloadable`` attribute can now be written in all of the syntactic
+  locations a declaration attribute may appear. Fixes PR53805.
+
 Windows Support
 ---------------
 
@@ -88,6 +91,11 @@ Windows Support
 
 C Language Changes in Clang
 ---------------------------
+
+C2x Feature Support
+-------------------
+
+- Implemented `WG14 N2674 The noreturn attribute <http://www.open-std.org/jtc1/sc22/wg14/www/docs/n2764.pdf>`_.
 
 C++ Language Changes in Clang
 -----------------------------
