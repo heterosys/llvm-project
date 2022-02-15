@@ -49,11 +49,9 @@ try:
 except ImportError:
     # Ask the command line driver for the path to the lldb module. Copy over
     # the environment so that SDKROOT is propagated to xcrun.
-    env = os.environ.copy()
-    env['LLDB_DEFAULT_PYTHON_VERSION'] = str(sys.version_info.major)
     command =  ['xcrun', 'lldb', '-P'] if platform.system() == 'Darwin' else ['lldb', '-P']
     # Extend the PYTHONPATH if the path exists and isn't already there.
-    lldb_python_path = subprocess.check_output(command, env=env).decode("utf-8").strip()
+    lldb_python_path = subprocess.check_output(command).decode("utf-8").strip()
     if os.path.exists(lldb_python_path) and not sys.path.__contains__(lldb_python_path):
         sys.path.append(lldb_python_path)
     # Try importing LLDB again.
@@ -399,7 +397,7 @@ class CrashLogFormatException(Exception):
 
 
 class CrashLogParseException(Exception):
-   pass
+    pass
 
 
 class CrashLogParser:
@@ -416,22 +414,22 @@ class JSONCrashLogParser:
         self.verbose = verbose
         self.crashlog = CrashLog(debugger, self.path, self.verbose)
 
+    def parse_json(self, buffer):
+        try:
+            return json.loads(buffer)
+        except:
+            # The first line can contain meta data. Try stripping it and try
+            # again.
+            head, _, tail = buffer.partition('\n')
+            return json.loads(tail)
+
     def parse(self):
         with open(self.path, 'r') as f:
             buffer = f.read()
 
-        # Skip the first line if it contains meta data.
-        head, _, tail = buffer.partition('\n')
         try:
-            metadata = json.loads(head)
-            if 'app_name' in metadata and 'app_version' in metadata:
-                buffer = tail
-        except ValueError:
-            pass
-
-        try:
-            self.data = json.loads(buffer)
-        except ValueError:
+            self.data = self.parse_json(buffer)
+        except:
             raise CrashLogFormatException()
 
         try:
