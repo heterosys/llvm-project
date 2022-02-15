@@ -23,6 +23,27 @@
 // Intrinsic type translation helpers
 //===--------------------------------------------------------------------===//
 
+static mlir::Type genRealType(mlir::MLIRContext *context, int kind) {
+  if (Fortran::evaluate::IsValidKindOfIntrinsicType(
+          Fortran::common::TypeCategory::Real, kind)) {
+    switch (kind) {
+    case 2:
+      return mlir::FloatType::getF16(context);
+    case 3:
+      return mlir::FloatType::getBF16(context);
+    case 4:
+      return mlir::FloatType::getF32(context);
+    case 8:
+      return mlir::FloatType::getF64(context);
+    case 10:
+      return mlir::FloatType::getF80(context);
+    case 16:
+      return mlir::FloatType::getF128(context);
+    }
+  }
+  llvm_unreachable("REAL type translation not implemented");
+}
+
 template <int KIND>
 int getIntegerBits() {
   return Fortran::evaluate::Type<Fortran::common::TypeCategory::Integer,
@@ -54,15 +75,22 @@ static mlir::Type genLogicalType(mlir::MLIRContext *context, int KIND) {
   return {};
 }
 
+static mlir::Type genComplexType(mlir::MLIRContext *context, int KIND) {
+  if (Fortran::evaluate::IsValidKindOfIntrinsicType(
+          Fortran::common::TypeCategory::Complex, KIND))
+    return fir::ComplexType::get(context, KIND);
+  return {};
+}
+
 static mlir::Type genFIRType(mlir::MLIRContext *context,
                              Fortran::common::TypeCategory tc, int kind) {
   switch (tc) {
   case Fortran::common::TypeCategory::Real:
-    TODO_NOLOC("genFIRType Real");
+    return genRealType(context, kind);
   case Fortran::common::TypeCategory::Integer:
     return genIntegerType(context, kind);
   case Fortran::common::TypeCategory::Complex:
-    TODO_NOLOC("genFIRType Complex");
+    return genComplexType(context, kind);
   case Fortran::common::TypeCategory::Logical:
     return genLogicalType(context, kind);
   case Fortran::common::TypeCategory::Character:
@@ -109,81 +137,11 @@ mlir::Type genFIRType(mlir::MLIRContext *context) {
 
 template <>
 mlir::Type
-genFIRType<Fortran::common::TypeCategory::Real, 2>(mlir::MLIRContext *context) {
-  return mlir::FloatType::getF16(context);
-}
-
-template <>
-mlir::Type
-genFIRType<Fortran::common::TypeCategory::Real, 3>(mlir::MLIRContext *context) {
-  return mlir::FloatType::getBF16(context);
-}
-
-template <>
-mlir::Type
-genFIRType<Fortran::common::TypeCategory::Real, 4>(mlir::MLIRContext *context) {
-  return mlir::FloatType::getF32(context);
-}
-
-template <>
-mlir::Type
-genFIRType<Fortran::common::TypeCategory::Real, 8>(mlir::MLIRContext *context) {
-  return mlir::FloatType::getF64(context);
-}
-
-template <>
-mlir::Type genFIRType<Fortran::common::TypeCategory::Real, 10>(
-    mlir::MLIRContext *context) {
-  return fir::RealType::get(context, 10);
-}
-
-template <>
-mlir::Type genFIRType<Fortran::common::TypeCategory::Real, 16>(
-    mlir::MLIRContext *context) {
-  return fir::RealType::get(context, 16);
-}
-
-template <>
-mlir::Type
-genFIRType<Fortran::common::TypeCategory::Real>(mlir::MLIRContext *context,
-                                                int kind) {
-  if (Fortran::evaluate::IsValidKindOfIntrinsicType(
-          Fortran::common::TypeCategory::Real, kind)) {
-    switch (kind) {
-    case 2:
-      return genFIRType<Fortran::common::TypeCategory::Real, 2>(context);
-    case 3:
-      return genFIRType<Fortran::common::TypeCategory::Real, 3>(context);
-    case 4:
-      return genFIRType<Fortran::common::TypeCategory::Real, 4>(context);
-    case 8:
-      return genFIRType<Fortran::common::TypeCategory::Real, 8>(context);
-    case 10:
-      return genFIRType<Fortran::common::TypeCategory::Real, 10>(context);
-    case 16:
-      return genFIRType<Fortran::common::TypeCategory::Real, 16>(context);
-    }
-  }
-  llvm_unreachable("REAL type translation not implemented");
-}
-
-template <>
-mlir::Type
 genFIRType<Fortran::common::TypeCategory::Character>(mlir::MLIRContext *context,
                                                      int KIND) {
   if (Fortran::evaluate::IsValidKindOfIntrinsicType(
           Fortran::common::TypeCategory::Character, KIND))
     return fir::CharacterType::get(context, KIND, 1);
-  return {};
-}
-
-template <>
-mlir::Type
-genFIRType<Fortran::common::TypeCategory::Complex>(mlir::MLIRContext *context,
-                                                   int KIND) {
-  if (Fortran::evaluate::IsValidKindOfIntrinsicType(
-          Fortran::common::TypeCategory::Complex, KIND))
-    return fir::ComplexType::get(context, KIND);
   return {};
 }
 

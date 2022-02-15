@@ -67,3 +67,63 @@ logical(8) function lfct4()
 end
 ! CHECK-LABEL: func @_QPlfct4() -> !fir.logical<8>
 ! CHECK:         return %{{.*}} : !fir.logical<8>
+
+real(2) function rfct1()
+end
+! CHECK-LABEL: func @_QPrfct1() -> f16
+! CHECK:         return %{{.*}} : f16
+
+real(3) function rfct2()
+end
+! CHECK-LABEL: func @_QPrfct2() -> bf16
+! CHECK:         return %{{.*}} : bf16
+
+real function rfct3()
+end
+! CHECK-LABEL: func @_QPrfct3() -> f32
+! CHECK:         return %{{.*}} : f32
+
+real(8) function rfct4()
+end
+! CHECK-LABEL: func @_QPrfct4() -> f64
+! CHECK:         return %{{.*}} : f64
+
+real(10) function rfct5()
+end
+! CHECK-LABEL: func @_QPrfct5() -> f80
+! CHECK:         return %{{.*}} : f80
+
+real(16) function rfct6()
+end
+! CHECK-LABEL: func @_QPrfct6() -> f128
+! CHECK:         return %{{.*}} : f128
+
+complex(2) function cplxfct1()
+end
+! CHECK-LABEL: func @_QPcplxfct1() -> !fir.complex<2>
+! CHECK:         return %{{.*}} : !fir.complex<2>
+
+complex(3) function cplxfct2()
+end
+! CHECK-LABEL: func @_QPcplxfct2() -> !fir.complex<3>
+! CHECK:         return %{{.*}} : !fir.complex<3>
+
+complex(4) function cplxfct3()
+end
+! CHECK-LABEL: func @_QPcplxfct3() -> !fir.complex<4>
+! CHECK:         return %{{.*}} : !fir.complex<4>
+
+complex(8) function cplxfct4()
+end
+! CHECK-LABEL: func @_QPcplxfct4() -> !fir.complex<8>
+! CHECK:         return %{{.*}} : !fir.complex<8>
+
+complex(10) function cplxfct5()
+end
+! CHECK-LABEL: func @_QPcplxfct5() -> !fir.complex<10>
+! CHECK:         return %{{.*}} : !fir.complex<10>
+
+complex(16) function cplxfct6()
+end
+! CHECK-LABEL: func @_QPcplxfct6() -> !fir.complex<16>
+! CHECK:         return %{{.*}} : !fir.complex<16>
