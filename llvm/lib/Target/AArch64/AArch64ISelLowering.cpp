@@ -3404,7 +3404,8 @@ SDValue AArch64TargetLowering::LowerVectorFP_TO_INT(SDValue Op,
   // Warning: We maintain cost tables in AArch64TargetTransformInfo.cpp.
   // Any additional optimization in this function should be recorded
   // in the cost tables.
-  EVT InVT = Op.getOperand(0).getValueType();
+  bool IsStrict = Op->isStrictFPOpcode();
+  EVT InVT = Op.getOperand(IsStrict ? 1 : 0).getValueType();
   EVT VT = Op.getValueType();
 
   if (VT.isScalableVector()) {
@@ -3424,6 +3425,12 @@ SDValue AArch64TargetLowering::LowerVectorFP_TO_INT(SDValue Op,
       !Subtarget->hasFullFP16()) {
     MVT NewVT = MVT::getVectorVT(MVT::f32, NumElts);
     SDLoc dl(Op);
+    if (IsStrict) {
+      SDValue Ext = DAG.getNode(ISD::STRICT_FP_EXTEND, dl, {NewVT, MVT::Other},
+                                {Op.getOperand(0), Op.getOperand(1)});
+      return DAG.getNode(Op.getOpcode(), dl, {VT, MVT::Other},
+                         {Ext.getValue(1), Ext.getValue(0)});
+    }
     return DAG.getNode(
         Op.getOpcode(), dl, Op.getValueType(),
         DAG.getNode(ISD::FP_EXTEND, dl, NewVT, Op.getOperand(0)));
@@ -3433,6 +3440,13 @@ SDValue AArch64TargetLowering::LowerVectorFP_TO_INT(SDValue Op,
   uint64_t InVTSize = InVT.getFixedSizeInBits();
   if (VTSize < InVTSize) {
     SDLoc dl(Op);
+    if (IsStrict) {
+      InVT = InVT.changeVectorElementTypeToInteger();
+      SDValue Cv = DAG.getNode(Op.getOpcode(), dl, {InVT, MVT::Other},
+                               {Op.getOperand(0), Op.getOperand(1)});
+      SDValue Trunc = DAG.getNode(ISD::TRUNCATE, dl, VT, Cv);
+      return DAG.getMergeValues({Trunc, Cv.getValue(1)}, dl);
+    }
     SDValue Cv =
         DAG.getNode(Op.getOpcode(), dl, InVT.changeVectorElementTypeToInteger(),
                     Op.getOperand(0));
@@ -3444,8 +3458,29 @@ SDValue AArch64TargetLowering::LowerVectorFP_TO_INT(SDValue Op,
     MVT ExtVT =
         MVT::getVectorVT(MVT::getFloatingPointVT(VT.getScalarSizeInBits()),
                          VT.getVectorNumElements());
+    if (IsStrict) {
+      SDValue Ext = DAG.getNode(ISD::STRICT_FP_EXTEND, dl,
+                                {ExtVT, MVT::Other},
+                                {Op.getOperand(0), Op.getOperand(1)});
+      return DAG.getNode(Op.getOpcode(), dl, {VT, MVT::Other},
+                         {Ext.getValue(1), Ext.getValue(0)});
+    }
     SDValue Ext = DAG.getNode(ISD::FP_EXTEND, dl, ExtVT, Op.getOperand(0));
     return DAG.getNode(Op.getOpcode(), dl, VT, Ext);
+  }
+
+  // Use a scalar operation for conversions between single-element vectors of
+  // the same size.
+  if (NumElts == 1) {
+    SDLoc dl(Op);
+    SDValue Extract = DAG.getNode(
+        ISD::EXTRACT_VECTOR_ELT, dl, InVT.getScalarType(),
+        Op.getOperand(IsStrict ? 1 : 0), DAG.getConstant(0, dl, MVT::i64));
+    EVT ScalarVT = VT.getScalarType();
+    if (IsStrict)
+      return DAG.getNode(Op.getOpcode(), dl, {ScalarVT, MVT::Other},
+                         {Op.getOperand(0), Extract});
+    return DAG.getNode(Op.getOpcode(), dl, ScalarVT, Extract);
   }
 
   // Type changing conversions are illegal.
@@ -3610,9 +3645,10 @@ SDValue AArch64TargetLowering::LowerVectorINT_TO_FP(SDValue Op,
   // Warning: We maintain cost tables in AArch64TargetTransformInfo.cpp.
   // Any additional optimization in this function should be recorded
   // in the cost tables.
+  bool IsStrict = Op->isStrictFPOpcode();
   EVT VT = Op.getValueType();
   SDLoc dl(Op);
-  SDValue In = Op.getOperand(0);
+  SDValue In = Op.getOperand(IsStrict ? 1 : 0);
   EVT InVT = In.getValueType();
   unsigned Opc = Op.getOpcode();
   bool IsSigned = Opc == ISD::SINT_TO_FP || Opc == ISD::STRICT_SINT_TO_FP;
@@ -3640,6 +3676,13 @@ SDValue AArch64TargetLowering::LowerVectorINT_TO_FP(SDValue Op,
     MVT CastVT =
         MVT::getVectorVT(MVT::getFloatingPointVT(InVT.getScalarSizeInBits()),
                          InVT.getVectorNumElements());
+    if (IsStrict) {
+      In = DAG.getNode(Opc, dl, {CastVT, MVT::Other},
+                       {Op.getOperand(0), In});
+      return DAG.getNode(
+          ISD::STRICT_FP_ROUND, dl, {VT, MVT::Other},
+          {In.getValue(1), In.getValue(0), DAG.getIntPtrConstant(0, dl)});
+    }
     In = DAG.getNode(Opc, dl, CastVT, In);
     return DAG.getNode(ISD::FP_ROUND, dl, VT, In, DAG.getIntPtrConstant(0, dl));
   }
@@ -3648,7 +3691,22 @@ SDValue AArch64TargetLowering::LowerVectorINT_TO_FP(SDValue Op,
     unsigned CastOpc = IsSigned ? ISD::SIGN_EXTEND : ISD::ZERO_EXTEND;
     EVT CastVT = VT.changeVectorElementTypeToInteger();
     In = DAG.getNode(CastOpc, dl, CastVT, In);
+    if (IsStrict)
+      return DAG.getNode(Opc, dl, {VT, MVT::Other}, {Op.getOperand(0), In});
     return DAG.getNode(Opc, dl, VT, In);
+  }
+
+  // Use a scalar operation for conversions between single-element vectors of
+  // the same size.
+  if (VT.getVectorNumElements() == 1) {
+    SDValue Extract = DAG.getNode(
+        ISD::EXTRACT_VECTOR_ELT, dl, InVT.getScalarType(),
+        In, DAG.getConstant(0, dl, MVT::i64));
+    EVT ScalarVT = VT.getScalarType();
+    if (IsStrict)
+      return DAG.getNode(Op.getOpcode(), dl, {ScalarVT, MVT::Other},
+                         {Op.getOperand(0), Extract});
+    return DAG.getNode(Op.getOpcode(), dl, ScalarVT, Extract);
   }
 
   return Op;
@@ -17152,12 +17210,51 @@ static SDValue performTBZCombine(SDNode *N,
                      DAG.getConstant(Bit, DL, MVT::i64), N->getOperand(3));
 }
 
+// Swap vselect operands where it may allow a predicated operation to achieve
+// the `sel`.
+//
+//     (vselect (setcc ( condcode) (_) (_)) (a)          (op (a) (b)))
+//  => (vselect (setcc (!condcode) (_) (_)) (op (a) (b)) (a))
+static SDValue trySwapVSelectOperands(SDNode *N, SelectionDAG &DAG) {
+  auto SelectA = N->getOperand(1);
+  auto SelectB = N->getOperand(2);
+  auto NTy = N->getValueType(0);
+
+  if (!NTy.isScalableVector())
+    return SDValue();
+  SDValue SetCC = N->getOperand(0);
+  if (SetCC.getOpcode() != ISD::SETCC || !SetCC.hasOneUse())
+    return SDValue();
+
+  switch (SelectB.getOpcode()) {
+  default:
+    return SDValue();
+  case ISD::FMUL:
+  case ISD::FSUB:
+  case ISD::FADD:
+    break;
+  }
+  if (SelectA != SelectB.getOperand(0))
+    return SDValue();
+
+  ISD::CondCode CC = cast<CondCodeSDNode>(SetCC->getOperand(2))->get();
+  auto InverseSetCC = DAG.getSetCC(
+      SDLoc(SetCC), SetCC.getValueType(), SetCC.getOperand(0),
+      SetCC.getOperand(1), ISD::getSetCCInverse(CC, SetCC.getValueType()));
+
+  return DAG.getNode(ISD::VSELECT, SDLoc(N), NTy,
+                     {InverseSetCC, SelectB, SelectA});
+}
+
 // vselect (v1i1 setcc) ->
 //     vselect (v1iXX setcc)  (XX is the size of the compared operand type)
 // FIXME: Currently the type legalizer can't handle VSELECT having v1i1 as
 // condition. If it can legalize "VSELECT v1i1" correctly, no need to combine
 // such VSELECT.
 static SDValue performVSelectCombine(SDNode *N, SelectionDAG &DAG) {
+  if (auto SwapResult = trySwapVSelectOperands(N, DAG))
+    return SwapResult;
+
   SDValue N0 = N->getOperand(0);
   EVT CCVT = N0.getValueType();
 
