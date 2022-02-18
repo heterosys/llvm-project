@@ -1495,11 +1495,6 @@ def : Flag<["-"], "fextended-identifiers">, Group<clang_ignored_f_Group>;
 def : Flag<["-"], "fno-extended-identifiers">, Group<f_Group>, Flags<[Unsupported]>;
 def fhosted : Flag<["-"], "fhosted">, Group<f_Group>;
 def fdenormal_fp_math_EQ : Joined<["-"], "fdenormal-fp-math=">, Group<f_Group>, Flags<[CC1Option]>;
-def ffp_eval_method_EQ : Joined<["-"], "ffp-eval-method=">, Group<f_Group>, Flags<[CC1Option]>,
-  HelpText<"Specifies the evaluation method to use for floating-point arithmetic.">,
-  Values<"source,double,extended">, NormalizedValuesScope<"LangOptions">,
-  NormalizedValues<["FEM_Source", "FEM_Double", "FEM_Extended"]>,
-  MarshallingInfoEnum<LangOpts<"FPEvalMethod">, "FEM_UnsetOnCommandLine">;
 def ffp_model_EQ : Joined<["-"], "ffp-model=">, Group<f_Group>, Flags<[NoXarchOption]>,
   HelpText<"Controls the semantics of floating-point calculations.">;
 def ffp_exception_behavior_EQ : Joined<["-"], "ffp-exception-behavior=">, Group<f_Group>, Flags<[CC1Option]>,
@@ -2478,6 +2473,10 @@ def fno_openmp_assume_teams_oversubscription : Flag<["-"], "fno-openmp-assume-te
   Group<f_Group>, Flags<[CC1Option, NoArgumentUnused, HelpHidden]>;
 def fno_openmp_assume_threads_oversubscription : Flag<["-"], "fno-openmp-assume-threads-oversubscription">,
   Group<f_Group>, Flags<[CC1Option, NoArgumentUnused, HelpHidden]>;
+def fopenmp_assume_no_thread_state : Flag<["-"], "fopenmp-assume-no-thread-state">, Group<f_Group>, 
+  Flags<[CC1Option, NoArgumentUnused, HelpHidden]>, 
+  HelpText<"Assert no thread in a parallel region modifies an ICV">,
+  MarshallingInfoFlag<LangOpts<"OpenMPNoThreadState">>;
 defm openmp_target_new_runtime: BoolFOption<"openmp-target-new-runtime",
   LangOpts<"OpenMPTargetNewRuntime">, DefaultTrue,
   PosFlag<SetTrue, [CC1Option], "Use the new bitcode library for OpenMP offloading">,
