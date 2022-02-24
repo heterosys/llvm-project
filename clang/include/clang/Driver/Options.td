@@ -959,6 +959,13 @@ defm cuda_short_ptr : BoolFOption<"cuda-short-ptr",
   TargetOpts<"NVPTXUseShortPointers">, DefaultFalse,
   PosFlag<SetTrue, [CC1Option], "Use 32-bit pointers for accessing const/local/shared address spaces">,
   NegFlag<SetFalse>>;
+def fgpu_default_stream_EQ : Joined<["-"], "fgpu-default-stream=">,
+  HelpText<"Specify default stream. Valid values are 'legacy' and 'per-thread'. The default value is 'legacy'. (HIP only)">,
+  Flags<[CC1Option]>,
+  Values<"legacy,per-thread">,
+  NormalizedValuesScope<"LangOptions::GPUDefaultStreamKind">,
+  NormalizedValues<["Legacy", "PerThread"]>,
+  MarshallingInfoEnum<LangOpts<"GPUDefaultStream">, "Legacy">;
 def rocm_path_EQ : Joined<["--"], "rocm-path=">, Group<i_Group>,
   HelpText<"ROCm installation path, used for finding and automatically linking required bitcode libraries.">;
 def hip_path_EQ : Joined<["--"], "hip-path=">, Group<i_Group>,
@@ -1495,6 +1502,11 @@ def : Flag<["-"], "fextended-identifiers">, Group<clang_ignored_f_Group>;
 def : Flag<["-"], "fno-extended-identifiers">, Group<f_Group>, Flags<[Unsupported]>;
 def fhosted : Flag<["-"], "fhosted">, Group<f_Group>;
 def fdenormal_fp_math_EQ : Joined<["-"], "fdenormal-fp-math=">, Group<f_Group>, Flags<[CC1Option]>;
+def ffp_eval_method_EQ : Joined<["-"], "ffp-eval-method=">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Specifies the evaluation method to use for floating-point arithmetic.">,
+  Values<"source,double,extended">, NormalizedValuesScope<"LangOptions">,
+  NormalizedValues<["FEM_Source", "FEM_Double", "FEM_Extended"]>,
+  MarshallingInfoEnum<LangOpts<"FPEvalMethod">, "FEM_UnsetOnCommandLine">;
 def ffp_model_EQ : Joined<["-"], "ffp-model=">, Group<f_Group>, Flags<[NoXarchOption]>,
   HelpText<"Controls the semantics of floating-point calculations.">;
 def ffp_exception_behavior_EQ : Joined<["-"], "ffp-exception-behavior=">, Group<f_Group>, Flags<[CC1Option]>,
