@@ -14,11 +14,9 @@
 #define LLVM_DEBUGINFO_SYMBOLIZE_SYMBOLIZE_H
 
 #include "llvm/ADT/StringMap.h"
+#include "llvm/DebugInfo/DIContext.h"
 #include "llvm/DebugInfo/Symbolize/DIFetcher.h"
-#include "llvm/DebugInfo/Symbolize/SymbolizableModule.h"
 #include "llvm/Object/Binary.h"
-#include "llvm/Object/ELFObjectFile.h"
-#include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/Error.h"
 #include <algorithm>
 #include <cstdint>
@@ -29,7 +27,16 @@
 #include <vector>
 
 namespace llvm {
+namespace object {
+class ELFObjectFileBase;
+class MachOObjectFile;
+class ObjectFile;
+struct SectionedAddress;
+} // namespace object
+
 namespace symbolize {
+
+class SymbolizableModule;
 
 using namespace object;
 
@@ -54,9 +61,9 @@ public:
   };
 
   LLVMSymbolizer() = default;
-  LLVMSymbolizer(const Options &Opts) : Opts(Opts) {}
+  LLVMSymbolizer(const Options &Opts);
 
-  ~LLVMSymbolizer() { flush(); }
+  ~LLVMSymbolizer();
 
   // Overloads accepting ObjectFile does not support COFF currently
   Expected<DILineInfo> symbolizeCode(const ObjectFile &Obj,
