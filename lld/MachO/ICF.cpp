@@ -289,8 +289,9 @@ void ICF::run() {
             } else {
               hash += defined->value;
             }
-          } else if (!isa<Undefined>(sym)) { // ICF runs before Undefined diags
-            llvm_unreachable("foldIdenticalSections symbol kind");
+          } else {
+            // ICF runs before Undefined diags
+            assert(isa<Undefined>(sym) || isa<DylibSymbol>(sym));
           }
         }
       }

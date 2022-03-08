@@ -1462,7 +1462,6 @@ def feliminate_unused_debug_symbols : Flag<["-"], "feliminate-unused-debug-symbo
 def fjmc : Flag<["-"], "fjmc">, Group<f_Group>,Flags<[CC1Option]>,
     HelpText<"Enable just-my-code debugging">,
     MarshallingInfoFlag<CodeGenOpts<"JMCInstrument">>;
-def fno_jmc : Flag<["-"], "fno-jmc">, Group<f_Group>, Flags<[CC1Option]>;
 defm eliminate_unused_debug_types : OptOutCC1FFlag<"eliminate-unused-debug-types",
   "Do not emit ", "Emit ", " debug info for defined but unused types">;
 def femit_all_decls : Flag<["-"], "femit-all-decls">, Group<f_Group>, Flags<[CC1Option]>,
@@ -3469,6 +3468,8 @@ def mtail_call : Flag<["-"], "mtail-call">, Group<m_wasm_Features_Group>;
 def mno_tail_call : Flag<["-"], "mno-tail-call">, Group<m_wasm_Features_Group>;
 def mreference_types : Flag<["-"], "mreference-types">, Group<m_wasm_Features_Group>;
 def mno_reference_types : Flag<["-"], "mno-reference-types">, Group<m_wasm_Features_Group>;
+def mextended_const : Flag<["-"], "mextended-const">, Group<m_wasm_Features_Group>;
+def mno_extended_const : Flag<["-"], "mno-extended-const">, Group<m_wasm_Features_Group>;
 def mexec_model_EQ : Joined<["-"], "mexec-model=">, Group<m_wasm_Features_Driver_Group>,
                      Values<"command,reactor">,
                      HelpText<"Execution model (WebAssembly only)">;

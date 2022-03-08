@@ -843,7 +843,7 @@ public:
   }
 
   bool hasFmaakFmamkF32Insts() const {
-    return getGeneration() >= GFX10;
+    return getGeneration() >= GFX10 || hasGFX940Insts();
   }
 
   bool hasImageInsts() const {
@@ -891,6 +891,8 @@ public:
   }
 
   bool hasMadF16() const;
+
+  bool hasMovB64() const { return GFX940Insts; }
 
   bool enableSIScheduler() const {
     return EnableSIScheduler;
