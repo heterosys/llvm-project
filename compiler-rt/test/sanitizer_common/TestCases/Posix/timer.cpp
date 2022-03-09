@@ -18,8 +18,6 @@ int main(int argc, char **argv) {
   new_value.it_interval.tv_sec = new_value.it_value.tv_sec;
   new_value.it_interval.tv_nsec = new_value.it_value.tv_nsec;
 
-  assert(timer_settime(timerid, 0, &new_value, nullptr) == 0);
-
   struct itimerspec old_value;
   assert(timer_settime(timerid, 0, &new_value, &old_value) == 0);
   assert(old_value.it_interval.tv_sec == new_value.it_interval.tv_sec);
@@ -33,6 +31,8 @@ int main(int argc, char **argv) {
   assert(curr_value.it_interval.tv_nsec == new_value.it_interval.tv_nsec);
   assert(curr_value.it_value.tv_sec <= new_value.it_value.tv_sec);
   assert(curr_value.it_value.tv_nsec <= new_value.it_value.tv_nsec);
+
+  assert(timer_delete(timerid) == 0);
 
   return 0;
 }
