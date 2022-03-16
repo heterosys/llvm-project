@@ -658,6 +658,19 @@ public:
     return createFltCmpOp<OpTy>(pred, left, genval(ex.right()));
   }
 
+  /// Create a call to the runtime to compare two CHARACTER values.
+  /// Precondition: This assumes that the two values have `fir.boxchar` type.
+  mlir::Value createCharCompare(mlir::arith::CmpIPredicate pred,
+                                const ExtValue &left, const ExtValue &right) {
+    return fir::runtime::genCharCompare(builder, getLoc(), pred, left, right);
+  }
+
+  template <typename A>
+  mlir::Value createCharCompare(const A &ex, mlir::arith::CmpIPredicate pred) {
+    ExtValue left = genval(ex.left());
+    return createCharCompare(pred, left, genval(ex.right()));
+  }
+
   /// Returns a reference to a symbol or its box/boxChar descriptor if it has
   /// one.
   ExtValue gen(Fortran::semantics::SymbolRef sym) {
@@ -1077,7 +1090,7 @@ public:
   template <int KIND>
   ExtValue genval(const Fortran::evaluate::Relational<Fortran::evaluate::Type<
                       Fortran::common::TypeCategory::Character, KIND>> &op) {
-    TODO(getLoc(), "genval char comparison");
+    return createCharCompare(op, translateRelational(op.opr));
   }
 
   ExtValue
@@ -2668,6 +2681,36 @@ public:
 
     llvm::StringRef name = intrinsic.name;
     mlir::Location loc = getLoc();
+    if (Fortran::lower::intrinsicRequiresCustomOptionalHandling(
+            procRef, intrinsic, converter)) {
+      using ExvAndPresence = std::pair<ExtValue, llvm::Optional<mlir::Value>>;
+      llvm::SmallVector<ExvAndPresence, 4> operands;
+      auto prepareOptionalArg = [&](const Fortran::lower::SomeExpr &expr) {
+        ExtValue optionalArg = lowerIntrinsicArgumentAsInquired(expr);
+        mlir::Value isPresent =
+            genActualIsPresentTest(builder, loc, optionalArg);
+        operands.emplace_back(optionalArg, isPresent);
+      };
+      auto prepareOtherArg = [&](const Fortran::lower::SomeExpr &expr) {
+        operands.emplace_back(genval(expr), llvm::None);
+      };
+      Fortran::lower::prepareCustomIntrinsicArgument(
+          procRef, intrinsic, resultType, prepareOptionalArg, prepareOtherArg,
+          converter);
+
+      auto getArgument = [&](std::size_t i) -> ExtValue {
+        if (fir::conformsWithPassByRef(
+                fir::getBase(operands[i].first).getType()))
+          return genLoad(operands[i].first);
+        return operands[i].first;
+      };
+      auto isPresent = [&](std::size_t i) -> llvm::Optional<mlir::Value> {
+        return operands[i].second;
+      };
+      return Fortran::lower::lowerCustomIntrinsic(
+          builder, loc, name, resultType, isPresent, getArgument,
+          operands.size(), stmtCtx);
+    }
 
     const Fortran::lower::IntrinsicArgumentLoweringRules *argLowering =
         Fortran::lower::getIntrinsicArgumentLowering(name);

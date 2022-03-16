@@ -249,12 +249,8 @@ public:
   fir::ExtendedValue genExprBox(const Fortran::lower::SomeExpr &expr,
                                 Fortran::lower::StatementContext &context,
                                 mlir::Location loc) override final {
-    if (expr.Rank() > 0 && Fortran::evaluate::IsVariable(expr) &&
-        !Fortran::evaluate::HasVectorSubscript(expr))
-      return Fortran::lower::createSomeArrayBox(*this, expr, localSymbols,
-                                                context);
-    return fir::BoxValue(
-        builder->createBox(loc, genExprAddr(expr, context, &loc)));
+    return Fortran::lower::createBoxValue(loc, *this, expr, localSymbols,
+                                          context);
   }
 
   Fortran::evaluate::FoldingContext &getFoldingContext() override final {
@@ -835,10 +831,19 @@ private:
           // tags all result variables with one of the largest types to allow
           // them to share the same storage.  Convert this to the actual type.
           if (resultRef.getType() != resultRefType)
-            TODO(loc, "Convert to actual type");
+            resultRef = builder->createConvert(loc, resultRefType, resultRef);
           return builder->create<fir::LoadOp>(loc, resultRef);
         });
     builder->create<mlir::func::ReturnOp>(loc, resultVal);
+  }
+
+  /// Get the return value of a call to \p symbol, which is a subroutine entry
+  /// point that has alternative return specifiers.
+  const mlir::Value
+  getAltReturnResult(const Fortran::semantics::Symbol &symbol) {
+    assert(Fortran::semantics::HasAlternateReturns(symbol) &&
+           "subroutine does not have alternate returns");
+    return getSymbolAddress(symbol);
   }
 
   void genFIRProcedureExit(Fortran::lower::pft::FunctionLikeUnit &funit,
@@ -852,6 +857,10 @@ private:
     }
     if (Fortran::semantics::IsFunction(symbol)) {
       genReturnSymbol(symbol);
+    } else if (Fortran::semantics::HasAlternateReturns(symbol)) {
+      mlir::Value retval = builder->create<fir::LoadOp>(
+          toLocation(), getAltReturnResult(symbol));
+      builder->create<mlir::func::ReturnOp>(toLocation(), retval);
     } else {
       genExitRoutine();
     }
@@ -1995,7 +2004,21 @@ private:
     }
     mlir::Location loc = toLocation();
     if (stmt.v) {
-      TODO(loc, "Alternate return statement");
+      // Alternate return statement - If this is a subroutine where some
+      // alternate entries have alternate returns, but the active entry point
+      // does not, ignore the alternate return value.  Otherwise, assign it
+      // to the compiler-generated result variable.
+      const Fortran::semantics::Symbol &symbol = funit->getSubprogramSymbol();
+      if (Fortran::semantics::HasAlternateReturns(symbol)) {
+        Fortran::lower::StatementContext stmtCtx;
+        const Fortran::lower::SomeExpr *expr =
+            Fortran::semantics::GetExpr(*stmt.v);
+        assert(expr && "missing alternate return expression");
+        mlir::Value altReturnIndex = builder->createConvert(
+            loc, builder->getIndexType(), createFIRExpr(loc, expr, stmtCtx));
+        builder->create<fir::StoreOp>(loc, altReturnIndex,
+                                      getAltReturnResult(symbol));
+      }
     }
     // Branch to the last block of the SUBROUTINE, which has the actual return.
     if (!funit->finalBlock) {
@@ -2049,10 +2072,7 @@ private:
   void genFIR(const Fortran::parser::EndFunctionStmt &) {}   // nop
   void genFIR(const Fortran::parser::EndIfStmt &) {}         // nop
   void genFIR(const Fortran::parser::EndSubroutineStmt &) {} // nop
-
-  void genFIR(const Fortran::parser::EntryStmt &) {
-    TODO(toLocation(), "EntryStmt lowering");
-  }
+  void genFIR(const Fortran::parser::EntryStmt &) {}         // nop
 
   void genFIR(const Fortran::parser::IfStmt &) {
     TODO(toLocation(), "IfStmt lowering");
