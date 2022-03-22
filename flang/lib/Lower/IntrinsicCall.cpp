@@ -1036,6 +1036,8 @@ static constexpr RuntimeFunction llvmIntrinsics[] = {
     {"sign", "llvm.copysign.f64", genF64F64F64FuncType},
     {"sign", "llvm.copysign.f80", genF80F80F80FuncType},
     {"sign", "llvm.copysign.f128", genF128F128F128FuncType},
+    {"sqrt", "llvm.sqrt.f32", genF32F32FuncType},
+    {"sqrt", "llvm.sqrt.f64", genF64F64FuncType},
 };
 
 // This helper class computes a "distance" between two function types.
@@ -3685,6 +3687,15 @@ mlir::Value Fortran::lower::genMax(fir::FirOpBuilder &builder,
   assert(args.size() > 0 && "max requires at least one argument");
   return IntrinsicLibrary{builder, loc}
       .genExtremum<Extremum::Max, ExtremumBehavior::MinMaxss>(args[0].getType(),
+                                                              args);
+}
+
+mlir::Value Fortran::lower::genMin(fir::FirOpBuilder &builder,
+                                   mlir::Location loc,
+                                   llvm::ArrayRef<mlir::Value> args) {
+  assert(args.size() > 0 && "min requires at least one argument");
+  return IntrinsicLibrary{builder, loc}
+      .genExtremum<Extremum::Min, ExtremumBehavior::MinMaxss>(args[0].getType(),
                                                               args);
 }
 
