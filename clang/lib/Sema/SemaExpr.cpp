@@ -3439,6 +3439,10 @@ ExprResult Sema::BuildDeclarationNameExpr(
     valueKind = VK_LValue;
     break;
 
+  case Decl::UnnamedGlobalConstant:
+    valueKind = VK_LValue;
+    break;
+
   case Decl::CXXMethod:
     // If we're referring to a method with an __unknown_anytype
     // result type, make the entire expression __unknown_anytype.
@@ -9399,6 +9403,15 @@ Sema::CheckAssignmentConstraints(QualType LHSType, ExprResult &RHS,
     return Compatible;
   }
 
+  // If the LHS has an __auto_type, there are no additional type constraints
+  // to be worried about.
+  if (const auto *AT = dyn_cast<AutoType>(LHSType)) {
+    if (AT->isGNUAutoType()) {
+      Kind = CK_NoOp;
+      return Compatible;
+    }
+  }
+
   // If we have an atomic type, try a non-atomic assignment, then just add an
   // atomic qualification step.
   if (const AtomicType *AtomicTy = dyn_cast<AtomicType>(LHSType)) {
@@ -10060,9 +10073,11 @@ static bool tryVectorConvertAndSplat(Sema &S, ExprResult *scalar,
 static ExprResult convertVector(Expr *E, QualType ElementType, Sema &S) {
   const auto *VecTy = E->getType()->getAs<VectorType>();
   assert(VecTy && "Expression E must be a vector");
-  QualType NewVecTy = S.Context.getVectorType(ElementType,
-                                              VecTy->getNumElements(),
-                                              VecTy->getVectorKind());
+  QualType NewVecTy =
+      VecTy->isExtVectorType()
+          ? S.Context.getExtVectorType(ElementType, VecTy->getNumElements())
+          : S.Context.getVectorType(ElementType, VecTy->getNumElements(),
+                                    VecTy->getVectorKind());
 
   // Look through the implicit cast. Return the subexpression if its type is
   // NewVecTy.
@@ -10465,16 +10480,24 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
 
 QualType Sema::CheckSizelessVectorOperands(ExprResult &LHS, ExprResult &RHS,
                                            SourceLocation Loc,
+                                           bool IsCompAssign,
                                            ArithConvKind OperationKind) {
+  if (!IsCompAssign) {
+    LHS = DefaultFunctionArrayLvalueConversion(LHS.get());
+    if (LHS.isInvalid())
+      return QualType();
+  }
+  RHS = DefaultFunctionArrayLvalueConversion(RHS.get());
+  if (RHS.isInvalid())
+    return QualType();
+
   QualType LHSType = LHS.get()->getType().getUnqualifiedType();
   QualType RHSType = RHS.get()->getType().getUnqualifiedType();
 
-  const BuiltinType *LHSVecType = LHSType->getAs<BuiltinType>();
-  const BuiltinType *RHSVecType = RHSType->getAs<BuiltinType>();
-
   unsigned DiagID = diag::err_typecheck_invalid_operands;
   if ((OperationKind == ACK_Arithmetic) &&
-      (LHSVecType->isSVEBool() || RHSVecType->isSVEBool())) {
+      (LHSType->castAs<BuiltinType>()->isSVEBool() ||
+       RHSType->castAs<BuiltinType>()->isSVEBool())) {
     Diag(Loc, DiagID) << LHSType << RHSType << LHS.get()->getSourceRange()
                       << RHS.get()->getSourceRange();
     return QualType();
@@ -10482,6 +10505,34 @@ QualType Sema::CheckSizelessVectorOperands(ExprResult &LHS, ExprResult &RHS,
 
   if (Context.hasSameType(LHSType, RHSType))
     return LHSType;
+
+  auto tryScalableVectorConvert = [this](ExprResult *Src, QualType SrcType,
+                                         QualType DestType) {
+    const QualType DestBaseType = DestType->getSveEltType(Context);
+    if (DestBaseType->getUnqualifiedDesugaredType() ==
+        SrcType->getUnqualifiedDesugaredType()) {
+      unsigned DiagID = diag::err_typecheck_invalid_operands;
+      if (!tryVectorConvertAndSplat(*this, Src, SrcType, DestBaseType, DestType,
+                                    DiagID))
+        return DestType;
+    }
+    return QualType();
+  };
+
+  if (LHSType->isVLSTBuiltinType() && !RHSType->isVLSTBuiltinType()) {
+    auto DestType = tryScalableVectorConvert(&RHS, RHSType, LHSType);
+    if (DestType == QualType())
+      return InvalidOperands(Loc, LHS, RHS);
+    return DestType;
+  }
+
+  if (RHSType->isVLSTBuiltinType() && !LHSType->isVLSTBuiltinType()) {
+    auto DestType = tryScalableVectorConvert((IsCompAssign ? nullptr : &LHS),
+                                             LHSType, RHSType);
+    if (DestType == QualType())
+      return InvalidOperands(Loc, LHS, RHS);
+    return DestType;
+  }
 
   Diag(Loc, DiagID) << LHSType << RHSType << LHS.get()->getSourceRange()
                     << RHS.get()->getSourceRange();
@@ -10602,7 +10653,8 @@ QualType Sema::CheckMultiplyDivideOperands(ExprResult &LHS, ExprResult &RHS,
                                /*AllowBooleanOperation*/ false,
                                /*ReportInvalid*/ true);
   if (LHSTy->isVLSTBuiltinType() || RHSTy->isVLSTBuiltinType())
-    return CheckSizelessVectorOperands(LHS, RHS, Loc, ACK_Arithmetic);
+    return CheckSizelessVectorOperands(LHS, RHS, Loc, IsCompAssign,
+                                       ACK_Arithmetic);
   if (!IsDiv &&
       (LHSTy->isConstantMatrixType() || RHSTy->isConstantMatrixType()))
     return CheckMatrixMultiplyOperands(LHS, RHS, Loc, IsCompAssign);
@@ -10642,17 +10694,12 @@ QualType Sema::CheckRemainderOperands(
     return InvalidOperands(Loc, LHS, RHS);
   }
 
-  if (LHS.get()->getType()->isVLSTBuiltinType() &&
+  if (LHS.get()->getType()->isVLSTBuiltinType() ||
       RHS.get()->getType()->isVLSTBuiltinType()) {
-    if (LHS.get()
-            ->getType()
-            ->getSveEltType(Context)
-            ->hasIntegerRepresentation() &&
-        RHS.get()
-            ->getType()
-            ->getSveEltType(Context)
-            ->hasIntegerRepresentation())
-      return CheckSizelessVectorOperands(LHS, RHS, Loc, ACK_Arithmetic);
+    if (LHS.get()->getType()->hasIntegerRepresentation() &&
+        RHS.get()->getType()->hasIntegerRepresentation())
+      return CheckSizelessVectorOperands(LHS, RHS, Loc, IsCompAssign,
+                                         ACK_Arithmetic);
 
     return InvalidOperands(Loc, LHS, RHS);
   }
@@ -10967,7 +11014,7 @@ QualType Sema::CheckAdditionOperands(ExprResult &LHS, ExprResult &RHS,
   if (LHS.get()->getType()->isVLSTBuiltinType() ||
       RHS.get()->getType()->isVLSTBuiltinType()) {
     QualType compType =
-        CheckSizelessVectorOperands(LHS, RHS, Loc, ACK_Arithmetic);
+        CheckSizelessVectorOperands(LHS, RHS, Loc, CompLHSTy, ACK_Arithmetic);
     if (CompLHSTy)
       *CompLHSTy = compType;
     return compType;
@@ -11082,7 +11129,7 @@ QualType Sema::CheckSubtractionOperands(ExprResult &LHS, ExprResult &RHS,
   if (LHS.get()->getType()->isVLSTBuiltinType() ||
       RHS.get()->getType()->isVLSTBuiltinType()) {
     QualType compType =
-        CheckSizelessVectorOperands(LHS, RHS, Loc, ACK_Arithmetic);
+        CheckSizelessVectorOperands(LHS, RHS, Loc, CompLHSTy, ACK_Arithmetic);
     if (CompLHSTy)
       *CompLHSTy = compType;
     return compType;
@@ -12897,7 +12944,17 @@ inline QualType Sema::CheckBitwiseOperands(ExprResult &LHS, ExprResult &RHS,
       RHS.get()->getType()->isVLSTBuiltinType()) {
     if (LHS.get()->getType()->hasIntegerRepresentation() &&
         RHS.get()->getType()->hasIntegerRepresentation())
-      return CheckSizelessVectorOperands(LHS, RHS, Loc, ACK_BitwiseOp);
+      return CheckSizelessVectorOperands(LHS, RHS, Loc, IsCompAssign,
+                                         ACK_BitwiseOp);
+    return InvalidOperands(Loc, LHS, RHS);
+  }
+
+  if (LHS.get()->getType()->isVLSTBuiltinType() ||
+      RHS.get()->getType()->isVLSTBuiltinType()) {
+    if (LHS.get()->getType()->hasIntegerRepresentation() &&
+        RHS.get()->getType()->hasIntegerRepresentation())
+      return CheckSizelessVectorOperands(LHS, RHS, Loc, IsCompAssign,
+                                         ACK_BitwiseOp);
     return InvalidOperands(Loc, LHS, RHS);
   }
 
@@ -13584,15 +13641,15 @@ QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
     }
   }
 
-  // C99 6.5.16p3: The type of an assignment expression is the type of the
-  // left operand unless the left operand has qualified type, in which case
-  // it is the unqualified version of the type of the left operand.
-  // C99 6.5.16.1p2: In simple assignment, the value of the right operand
-  // is converted to the type of the assignment expression (above).
+  // C11 6.5.16p3: The type of an assignment expression is the type of the
+  // left operand would have after lvalue conversion.
+  // C11 6.3.2.1p2: ...this is called lvalue conversion. If the lvalue has
+  // qualified type, the value has the unqualified version of the type of the
+  // lvalue; additionally, if the lvalue has atomic type, the value has the
+  // non-atomic version of the type of the lvalue.
   // C++ 5.17p1: the type of the assignment expression is that of its left
   // operand.
-  return (getLangOpts().CPlusPlus
-          ? LHSType : LHSType.getUnqualifiedType());
+  return getLangOpts().CPlusPlus ? LHSType : LHSType.getAtomicUnqualifiedType();
 }
 
 // Only ignore explicit casts to void.
@@ -14072,8 +14129,8 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
           return MPTy;
         }
       }
-    } else if (!isa<FunctionDecl>(dcl) && !isa<NonTypeTemplateParmDecl>(dcl) &&
-               !isa<BindingDecl>(dcl) && !isa<MSGuidDecl>(dcl))
+    } else if (!isa<FunctionDecl, NonTypeTemplateParmDecl, BindingDecl,
+                    MSGuidDecl, UnnamedGlobalConstantDecl>(dcl))
       llvm_unreachable("Unknown/unexpected decl type");
   }
 
@@ -16257,18 +16314,111 @@ ExprResult Sema::ActOnGNUNullExpr(SourceLocation TokenLoc) {
   return new (Context) GNUNullExpr(Ty, TokenLoc);
 }
 
+static CXXRecordDecl *LookupStdSourceLocationImpl(Sema &S, SourceLocation Loc) {
+  CXXRecordDecl *ImplDecl = nullptr;
+
+  // Fetch the std::source_location::__impl decl.
+  if (NamespaceDecl *Std = S.getStdNamespace()) {
+    LookupResult ResultSL(S, &S.PP.getIdentifierTable().get("source_location"),
+                          Loc, Sema::LookupOrdinaryName);
+    if (S.LookupQualifiedName(ResultSL, Std)) {
+      if (auto *SLDecl = ResultSL.getAsSingle<RecordDecl>()) {
+        LookupResult ResultImpl(S, &S.PP.getIdentifierTable().get("__impl"),
+                                Loc, Sema::LookupOrdinaryName);
+        if ((SLDecl->isCompleteDefinition() || SLDecl->isBeingDefined()) &&
+            S.LookupQualifiedName(ResultImpl, SLDecl)) {
+          ImplDecl = ResultImpl.getAsSingle<CXXRecordDecl>();
+        }
+      }
+    }
+  }
+
+  if (!ImplDecl || !ImplDecl->isCompleteDefinition()) {
+    S.Diag(Loc, diag::err_std_source_location_impl_not_found);
+    return nullptr;
+  }
+
+  // Verify that __impl is a trivial struct type, with no base classes, and with
+  // only the four expected fields.
+  if (ImplDecl->isUnion() || !ImplDecl->isStandardLayout() ||
+      ImplDecl->getNumBases() != 0) {
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
+    return nullptr;
+  }
+
+  unsigned Count = 0;
+  for (FieldDecl *F : ImplDecl->fields()) {
+    StringRef Name = F->getName();
+
+    if (Name == "_M_file_name") {
+      if (F->getType() !=
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
+        break;
+      Count++;
+    } else if (Name == "_M_function_name") {
+      if (F->getType() !=
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
+        break;
+      Count++;
+    } else if (Name == "_M_line") {
+      if (!F->getType()->isIntegerType())
+        break;
+      Count++;
+    } else if (Name == "_M_column") {
+      if (!F->getType()->isIntegerType())
+        break;
+      Count++;
+    } else {
+      Count = 100; // invalid
+      break;
+    }
+  }
+  if (Count != 4) {
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
+    return nullptr;
+  }
+
+  return ImplDecl;
+}
+
 ExprResult Sema::ActOnSourceLocExpr(SourceLocExpr::IdentKind Kind,
                                     SourceLocation BuiltinLoc,
                                     SourceLocation RPLoc) {
-  return BuildSourceLocExpr(Kind, BuiltinLoc, RPLoc, CurContext);
+  QualType ResultTy;
+  switch (Kind) {
+  case SourceLocExpr::File:
+  case SourceLocExpr::Function: {
+    QualType ArrTy = Context.getStringLiteralArrayType(Context.CharTy, 0);
+    ResultTy =
+        Context.getPointerType(ArrTy->getAsArrayTypeUnsafe()->getElementType());
+    break;
+  }
+  case SourceLocExpr::Line:
+  case SourceLocExpr::Column:
+    ResultTy = Context.UnsignedIntTy;
+    break;
+  case SourceLocExpr::SourceLocStruct:
+    if (!StdSourceLocationImplDecl) {
+      StdSourceLocationImplDecl =
+          LookupStdSourceLocationImpl(*this, BuiltinLoc);
+      if (!StdSourceLocationImplDecl)
+        return ExprError();
+    }
+    ResultTy = Context.getPointerType(
+        Context.getRecordType(StdSourceLocationImplDecl).withConst());
+    break;
+  }
+
+  return BuildSourceLocExpr(Kind, ResultTy, BuiltinLoc, RPLoc, CurContext);
 }
 
 ExprResult Sema::BuildSourceLocExpr(SourceLocExpr::IdentKind Kind,
+                                    QualType ResultTy,
                                     SourceLocation BuiltinLoc,
                                     SourceLocation RPLoc,
                                     DeclContext *ParentContext) {
   return new (Context)
-      SourceLocExpr(Context, Kind, BuiltinLoc, RPLoc, ParentContext);
+      SourceLocExpr(Context, Kind, ResultTy, BuiltinLoc, RPLoc, ParentContext);
 }
 
 bool Sema::CheckConversionToObjCLiteral(QualType DstType, Expr *&Exp,

@@ -19,6 +19,7 @@
 #define LLVM_CLANG_EXTRACTAPI_API_H
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclObjC.h"
 #include "clang/AST/RawCommentList.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/ExtractAPI/AvailabilityInfo.h"
@@ -73,6 +74,15 @@ struct APIRecord {
   /// Discriminator for LLVM-style RTTI (dyn_cast<> et al.)
   enum RecordKind {
     RK_Global,
+    RK_EnumConstant,
+    RK_Enum,
+    RK_StructField,
+    RK_Struct,
+    RK_ObjCProperty,
+    RK_ObjCIvar,
+    RK_ObjCMethod,
+    RK_ObjCInterface,
+    RK_ObjCProtocol,
   };
 
 private:
@@ -125,6 +135,245 @@ private:
   virtual void anchor();
 };
 
+/// This holds information associated with enum constants.
+struct EnumConstantRecord : APIRecord {
+  EnumConstantRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+                     const AvailabilityInfo &Availability,
+                     const DocComment &Comment,
+                     DeclarationFragments Declaration,
+                     DeclarationFragments SubHeading)
+      : APIRecord(RK_EnumConstant, Name, USR, Loc, Availability,
+                  LinkageInfo::none(), Comment, Declaration, SubHeading) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_EnumConstant;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This holds information associated with enums.
+struct EnumRecord : APIRecord {
+  SmallVector<std::unique_ptr<EnumConstantRecord>> Constants;
+
+  EnumRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+             const AvailabilityInfo &Availability, const DocComment &Comment,
+             DeclarationFragments Declaration, DeclarationFragments SubHeading)
+      : APIRecord(RK_Enum, Name, USR, Loc, Availability, LinkageInfo::none(),
+                  Comment, Declaration, SubHeading) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_Enum;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This holds information associated with struct fields.
+struct StructFieldRecord : APIRecord {
+  StructFieldRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+                    const AvailabilityInfo &Availability,
+                    const DocComment &Comment, DeclarationFragments Declaration,
+                    DeclarationFragments SubHeading)
+      : APIRecord(RK_StructField, Name, USR, Loc, Availability,
+                  LinkageInfo::none(), Comment, Declaration, SubHeading) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_StructField;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This holds information associated with structs.
+struct StructRecord : APIRecord {
+  SmallVector<std::unique_ptr<StructFieldRecord>> Fields;
+
+  StructRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+               const AvailabilityInfo &Availability, const DocComment &Comment,
+               DeclarationFragments Declaration,
+               DeclarationFragments SubHeading)
+      : APIRecord(RK_Struct, Name, USR, Loc, Availability, LinkageInfo::none(),
+                  Comment, Declaration, SubHeading) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_Struct;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This holds information associated with Objective-C properties.
+struct ObjCPropertyRecord : APIRecord {
+  /// The attributes associated with an Objective-C property.
+  enum AttributeKind : unsigned {
+    NoAttr = 0,
+    ReadOnly = 1,
+    Class = 1 << 1,
+    Dynamic = 1 << 2,
+  };
+
+  AttributeKind Attributes;
+  StringRef GetterName;
+  StringRef SetterName;
+  bool IsOptional;
+
+  ObjCPropertyRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+                     const AvailabilityInfo &Availability,
+                     const DocComment &Comment,
+                     DeclarationFragments Declaration,
+                     DeclarationFragments SubHeading, AttributeKind Attributes,
+                     StringRef GetterName, StringRef SetterName,
+                     bool IsOptional)
+      : APIRecord(RK_ObjCProperty, Name, USR, Loc, Availability,
+                  LinkageInfo::none(), Comment, Declaration, SubHeading),
+        Attributes(Attributes), GetterName(GetterName), SetterName(SetterName),
+        IsOptional(IsOptional) {}
+
+  bool isReadOnly() const { return Attributes & ReadOnly; }
+  bool isDynamic() const { return Attributes & Dynamic; }
+  bool isClassProperty() const { return Attributes & Class; }
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_ObjCProperty;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This holds information associated with Objective-C instance variables.
+struct ObjCInstanceVariableRecord : APIRecord {
+  using AccessControl = ObjCIvarDecl::AccessControl;
+  AccessControl Access;
+
+  ObjCInstanceVariableRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+                             const AvailabilityInfo &Availability,
+                             const DocComment &Comment,
+                             DeclarationFragments Declaration,
+                             DeclarationFragments SubHeading,
+                             AccessControl Access)
+      : APIRecord(RK_ObjCIvar, Name, USR, Loc, Availability,
+                  LinkageInfo::none(), Comment, Declaration, SubHeading),
+        Access(Access) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_ObjCIvar;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This holds information associated with Objective-C methods.
+struct ObjCMethodRecord : APIRecord {
+  FunctionSignature Signature;
+  bool IsInstanceMethod;
+
+  ObjCMethodRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+                   const AvailabilityInfo &Availability,
+                   const DocComment &Comment, DeclarationFragments Declaration,
+                   DeclarationFragments SubHeading, FunctionSignature Signature,
+                   bool IsInstanceMethod)
+      : APIRecord(RK_ObjCMethod, Name, USR, Loc, Availability,
+                  LinkageInfo::none(), Comment, Declaration, SubHeading),
+        Signature(Signature), IsInstanceMethod(IsInstanceMethod) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_ObjCMethod;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This represents a reference to another symbol that might come from external
+/// sources.
+struct SymbolReference {
+  StringRef Name;
+  StringRef USR;
+
+  /// The source project/module/product of the referred symbol.
+  StringRef Source;
+
+  SymbolReference() = default;
+  SymbolReference(StringRef Name, StringRef USR = "", StringRef Source = "")
+      : Name(Name), USR(USR), Source(Source) {}
+  SymbolReference(const APIRecord &Record)
+      : Name(Record.Name), USR(Record.USR) {}
+
+  /// Determine if this SymbolReference is empty.
+  ///
+  /// \returns true if and only if all \c Name, \c USR, and \c Source is empty.
+  bool empty() const { return Name.empty() && USR.empty() && Source.empty(); }
+};
+
+/// The base representation of an Objective-C container record. Holds common
+/// information associated with Objective-C containers.
+struct ObjCContainerRecord : APIRecord {
+  SmallVector<std::unique_ptr<ObjCMethodRecord>> Methods;
+  SmallVector<std::unique_ptr<ObjCPropertyRecord>> Properties;
+  SmallVector<std::unique_ptr<ObjCInstanceVariableRecord>> Ivars;
+  SmallVector<SymbolReference> Protocols;
+
+  ObjCContainerRecord() = delete;
+
+  ObjCContainerRecord(RecordKind Kind, StringRef Name, StringRef USR,
+                      PresumedLoc Loc, const AvailabilityInfo &Availability,
+                      LinkageInfo Linkage, const DocComment &Comment,
+                      DeclarationFragments Declaration,
+                      DeclarationFragments SubHeading)
+      : APIRecord(Kind, Name, USR, Loc, Availability, Linkage, Comment,
+                  Declaration, SubHeading) {}
+
+  virtual ~ObjCContainerRecord() = 0;
+};
+
+/// This holds information associated with Objective-C interfaces/classes.
+struct ObjCInterfaceRecord : ObjCContainerRecord {
+  SymbolReference SuperClass;
+
+  ObjCInterfaceRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+                      const AvailabilityInfo &Availability, LinkageInfo Linkage,
+                      const DocComment &Comment,
+                      DeclarationFragments Declaration,
+                      DeclarationFragments SubHeading,
+                      SymbolReference SuperClass)
+      : ObjCContainerRecord(RK_ObjCInterface, Name, USR, Loc, Availability,
+                            Linkage, Comment, Declaration, SubHeading),
+        SuperClass(SuperClass) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_ObjCInterface;
+  }
+
+private:
+  virtual void anchor();
+};
+
+/// This holds information associated with Objective-C protocols.
+struct ObjCProtocolRecord : ObjCContainerRecord {
+  ObjCProtocolRecord(StringRef Name, StringRef USR, PresumedLoc Loc,
+                     const AvailabilityInfo &Availability,
+                     const DocComment &Comment,
+                     DeclarationFragments Declaration,
+                     DeclarationFragments SubHeading)
+      : ObjCContainerRecord(RK_ObjCProtocol, Name, USR, Loc, Availability,
+                            LinkageInfo::none(), Comment, Declaration,
+                            SubHeading) {}
+
+  static bool classof(const APIRecord *Record) {
+    return Record->getKind() == RK_ObjCProtocol;
+  }
+
+private:
+  virtual void anchor();
+};
+
 /// APISet holds the set of API records collected from given inputs.
 class APISet {
 public:
@@ -166,35 +415,160 @@ public:
                             DeclarationFragments SubHeading,
                             FunctionSignature Signature);
 
-private:
-  /// \brief A custom deleter used for ``std::unique_ptr`` to APIRecords stored
-  /// in the BumpPtrAllocator.
+  /// Create and add an enum constant record into the API set.
   ///
-  /// \tparam T the exact type of the APIRecord subclass.
-  template <typename T> struct UniquePtrBumpPtrAllocatorDeleter {
-    void operator()(T *Instance) { Instance->~T(); }
-  };
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  EnumConstantRecord *addEnumConstant(EnumRecord *Enum, StringRef Name,
+                                      StringRef USR, PresumedLoc Loc,
+                                      const AvailabilityInfo &Availability,
+                                      const DocComment &Comment,
+                                      DeclarationFragments Declaration,
+                                      DeclarationFragments SubHeading);
 
-public:
-  /// A unique pointer to an APIRecord stored in the BumpPtrAllocator.
+  /// Create and add an enum record into the API set.
   ///
-  /// \tparam T the exact type of the APIRecord subclass.
-  template <typename T>
-  using APIRecordUniquePtr =
-      std::unique_ptr<T, UniquePtrBumpPtrAllocatorDeleter<T>>;
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  EnumRecord *addEnum(StringRef Name, StringRef USR, PresumedLoc Loc,
+                      const AvailabilityInfo &Availability,
+                      const DocComment &Comment,
+                      DeclarationFragments Declaration,
+                      DeclarationFragments SubHeading);
+
+  /// Create and add a struct field record into the API set.
+  ///
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  StructFieldRecord *addStructField(StructRecord *Struct, StringRef Name,
+                                    StringRef USR, PresumedLoc Loc,
+                                    const AvailabilityInfo &Availability,
+                                    const DocComment &Comment,
+                                    DeclarationFragments Declaration,
+                                    DeclarationFragments SubHeading);
+
+  /// Create and add a struct record into the API set.
+  ///
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  StructRecord *addStruct(StringRef Name, StringRef USR, PresumedLoc Loc,
+                          const AvailabilityInfo &Availability,
+                          const DocComment &Comment,
+                          DeclarationFragments Declaration,
+                          DeclarationFragments SubHeading);
+
+  /// Create and add an Objective-C interface record into the API set.
+  ///
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  ObjCInterfaceRecord *
+  addObjCInterface(StringRef Name, StringRef USR, PresumedLoc Loc,
+                   const AvailabilityInfo &Availability, LinkageInfo Linkage,
+                   const DocComment &Comment, DeclarationFragments Declaration,
+                   DeclarationFragments SubHeading, SymbolReference SuperClass);
+
+  /// Create and add an Objective-C method record into the API set.
+  ///
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  ObjCMethodRecord *
+  addObjCMethod(ObjCContainerRecord *Container, StringRef Name, StringRef USR,
+                PresumedLoc Loc, const AvailabilityInfo &Availability,
+                const DocComment &Comment, DeclarationFragments Declaration,
+                DeclarationFragments SubHeading, FunctionSignature Signature,
+                bool IsInstanceMethod);
+
+  /// Create and add an Objective-C property record into the API set.
+  ///
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  ObjCPropertyRecord *
+  addObjCProperty(ObjCContainerRecord *Container, StringRef Name, StringRef USR,
+                  PresumedLoc Loc, const AvailabilityInfo &Availability,
+                  const DocComment &Comment, DeclarationFragments Declaration,
+                  DeclarationFragments SubHeading,
+                  ObjCPropertyRecord::AttributeKind Attributes,
+                  StringRef GetterName, StringRef SetterName, bool IsOptional);
+
+  /// Create and add an Objective-C instance variable record into the API set.
+  ///
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  ObjCInstanceVariableRecord *addObjCInstanceVariable(
+      ObjCContainerRecord *Container, StringRef Name, StringRef USR,
+      PresumedLoc Loc, const AvailabilityInfo &Availability,
+      const DocComment &Comment, DeclarationFragments Declaration,
+      DeclarationFragments SubHeading,
+      ObjCInstanceVariableRecord::AccessControl Access);
+
+  /// Create and add an Objective-C protocol record into the API set.
+  ///
+  /// Note: the caller is responsible for keeping the StringRef \p Name and
+  /// \p USR alive. APISet::copyString provides a way to copy strings into
+  /// APISet itself, and APISet::recordUSR(const Decl *D) is a helper method
+  /// to generate the USR for \c D and keep it alive in APISet.
+  ObjCProtocolRecord *addObjCProtocol(StringRef Name, StringRef USR,
+                                      PresumedLoc Loc,
+                                      const AvailabilityInfo &Availability,
+                                      const DocComment &Comment,
+                                      DeclarationFragments Declaration,
+                                      DeclarationFragments SubHeading);
 
   /// A map to store the set of GlobalRecord%s with the declaration name as the
   /// key.
   using GlobalRecordMap =
-      llvm::MapVector<StringRef, APIRecordUniquePtr<GlobalRecord>>;
+      llvm::MapVector<StringRef, std::unique_ptr<GlobalRecord>>;
+
+  /// A map to store the set of EnumRecord%s with the declaration name as the
+  /// key.
+  using EnumRecordMap = llvm::MapVector<StringRef, std::unique_ptr<EnumRecord>>;
+
+  /// A map to store the set of StructRecord%s with the declaration name as the
+  /// key.
+  using StructRecordMap =
+      llvm::MapVector<StringRef, std::unique_ptr<StructRecord>>;
+
+  /// A map to store the set of ObjCInterfaceRecord%s with the declaration name
+  /// as the key.
+  using ObjCInterfaceRecordMap =
+      llvm::MapVector<StringRef, std::unique_ptr<ObjCInterfaceRecord>>;
+
+  /// A map to store the set of ObjCProtocolRecord%s with the declaration name
+  /// as the key.
+  using ObjCProtocolRecordMap =
+      llvm::MapVector<StringRef, std::unique_ptr<ObjCProtocolRecord>>;
 
   /// Get the target triple for the ExtractAPI invocation.
   const llvm::Triple &getTarget() const { return Target; }
 
-  /// Get the language options used to parse the APIs.
-  const LangOptions &getLangOpts() const { return LangOpts; }
+  /// Get the language used by the APIs.
+  Language getLanguage() const { return Lang; }
 
   const GlobalRecordMap &getGlobals() const { return Globals; }
+  const EnumRecordMap &getEnums() const { return Enums; }
+  const StructRecordMap &getStructs() const { return Structs; }
+  const ObjCInterfaceRecordMap &getObjCInterfaces() const {
+    return ObjCInterfaces;
+  }
+  const ObjCProtocolRecordMap &getObjCProtocols() const {
+    return ObjCProtocols;
+  }
 
   /// Generate and store the USR of declaration \p D.
   ///
@@ -208,17 +582,23 @@ public:
   /// \returns a StringRef of the copied string in APISet::Allocator.
   StringRef copyString(StringRef String);
 
-  APISet(const llvm::Triple &Target, const LangOptions &LangOpts)
-      : Target(Target), LangOpts(LangOpts) {}
+  APISet(const llvm::Triple &Target, Language Lang)
+      : Target(Target), Lang(Lang) {}
 
 private:
-  /// BumpPtrAllocator to store APIRecord%s and generated/copied strings.
-  llvm::BumpPtrAllocator Allocator;
+  /// BumpPtrAllocator to store generated/copied strings.
+  ///
+  /// Note: The main use for this is being able to deduplicate strings.
+  llvm::BumpPtrAllocator StringAllocator;
 
   const llvm::Triple Target;
-  const LangOptions LangOpts;
+  const Language Lang;
 
   GlobalRecordMap Globals;
+  EnumRecordMap Enums;
+  StructRecordMap Structs;
+  ObjCInterfaceRecordMap ObjCInterfaces;
+  ObjCProtocolRecordMap ObjCProtocols;
 };
 
 } // namespace extractapi

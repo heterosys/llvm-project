@@ -682,8 +682,11 @@ SVal SValBuilder::evalCastSubKind(loc::ConcreteInt V, QualType CastTy,
   }
 
   // Pointer to any pointer.
-  if (Loc::isLocType(CastTy))
-    return V;
+  if (Loc::isLocType(CastTy)) {
+    llvm::APSInt Value = V.getValue();
+    BasicVals.getAPSIntType(CastTy).apply(Value);
+    return loc::ConcreteInt(BasicVals.getValue(Value));
+  }
 
   // Pointer to whatever else.
   return UnknownVal();
@@ -742,9 +745,6 @@ SVal SValBuilder::evalCastSubKind(loc::MemRegionVal V, QualType CastTy,
       // This change is needed for architectures with varying
       // pointer widths. See the amdgcn opencl reproducer with
       // this change as an example: solver-sym-simplification-ptr-bool.cl
-      // FIXME: Cleanup remainder of `getZeroWithPtrWidth ()`
-      //        and `getIntWithPtrWidth()` functions to prevent future
-      //        confusion
       if (!Ty->isReferenceType())
         return makeNonLoc(Sym, BO_NE, BasicVals.getZeroWithTypeSize(Ty),
                           CastTy);
