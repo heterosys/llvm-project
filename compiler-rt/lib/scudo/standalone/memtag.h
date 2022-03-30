@@ -301,14 +301,14 @@ inline NORETURN uptr loadTag(uptr Ptr) {
 
 #endif
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-noreturn"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-noreturn"
 inline void setRandomTag(void *Ptr, uptr Size, uptr ExcludeMask,
                          uptr *TaggedBegin, uptr *TaggedEnd) {
   *TaggedBegin = selectRandomTag(reinterpret_cast<uptr>(Ptr), ExcludeMask);
   *TaggedEnd = storeTags(*TaggedBegin, *TaggedBegin + Size);
 }
-#pragma clang diagnostic pop
+#pragma GCC diagnostic pop
 
 inline void *untagPointer(void *Ptr) {
   return reinterpret_cast<void *>(untagPointer(reinterpret_cast<uptr>(Ptr)));
