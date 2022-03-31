@@ -18699,10 +18699,6 @@ static SDValue lowerV64I8Shuffle(const SDLoc &DL, ArrayRef<int> Mask,
                                               Zeroable, Subtarget, DAG))
     return PSHUFB;
 
-  // VBMI can use VPERMV/VPERMV3 byte shuffles.
-  if (Subtarget.hasVBMI())
-    return lowerShuffleWithPERMV(DL, MVT::v64i8, Mask, V1, V2, Subtarget, DAG);
-
   // Try to create an in-lane repeating shuffle mask and then shuffle the
   // results into the target lanes.
   if (SDValue V = lowerShuffleAsRepeatedMaskAndLanePermute(
@@ -18724,7 +18720,10 @@ static SDValue lowerV64I8Shuffle(const SDLoc &DL, ArrayRef<int> Mask,
             DL, MVT::v64i8, V1, V2, Mask, Subtarget, DAG))
       return Result;
 
-  // FIXME: Implement direct support for this type!
+  // VBMI can use VPERMV/VPERMV3 byte shuffles.
+  if (Subtarget.hasVBMI())
+    return lowerShuffleWithPERMV(DL, MVT::v64i8, Mask, V1, V2, Subtarget, DAG);
+
   return splitAndLowerShuffle(DL, MVT::v64i8, V1, V2, Mask, DAG);
 }
 
@@ -51501,6 +51500,16 @@ static SDValue combineSetCC(SDNode *N, SelectionDAG &DAG,
   if (Subtarget.hasSSE1() && !Subtarget.hasSSE2() && VT == MVT::v4i32 &&
       LHS.getValueType() == MVT::v4f32)
     return LowerVSETCC(SDValue(N, 0), Subtarget, DAG);
+
+  // X pred 0.0 --> X pred -X
+  // If the negation of X already exists, use it in the comparison. This removes
+  // the need to materialize 0.0 and allows matching to SSE's MIN/MAX
+  // instructions in patterns with a 'select' node.
+  if (isNullFPScalarOrVectorConst(RHS)) {
+    SDVTList FNegVT = DAG.getVTList(OpVT);
+    if (SDNode *FNeg = DAG.getNodeIfExists(ISD::FNEG, FNegVT, {LHS}))
+      return DAG.getSetCC(DL, VT, LHS, SDValue(FNeg, 0), CC);
+  }
 
   return SDValue();
 }
