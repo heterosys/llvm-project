@@ -296,9 +296,6 @@ void ObjFile::parseSections(ArrayRef<SectionHeader> sectionHeaders) {
         StringRef(sec.sectname, strnlen(sec.sectname, sizeof(sec.sectname)));
     StringRef segname =
         StringRef(sec.segname, strnlen(sec.segname, sizeof(sec.segname)));
-    ArrayRef<uint8_t> data = {isZeroFill(sec.flags) ? nullptr
-                                                    : buf + sec.offset,
-                              static_cast<size_t>(sec.size)};
     sections.push_back(make<Section>(this, segname, name, sec.flags, sec.addr));
     if (sec.align >= 32) {
       error("alignment " + std::to_string(sec.align) + " of section " + name +
@@ -307,6 +304,9 @@ void ObjFile::parseSections(ArrayRef<SectionHeader> sectionHeaders) {
     }
     const Section &section = *sections.back();
     uint32_t align = 1 << sec.align;
+    ArrayRef<uint8_t> data = {isZeroFill(sec.flags) ? nullptr
+                                                    : buf + sec.offset,
+                              static_cast<size_t>(sec.size)};
 
     auto splitRecords = [&](int recordSize) -> void {
       if (data.empty())
@@ -383,6 +383,20 @@ static InputSection *findContainingSubsection(const Section &section,
       [](uint64_t value, Subsection subsec) { return value < subsec.offset; }));
   *offset -= it->offset;
   return it->isec;
+}
+
+// Find a symbol at offset `off` within `isec`.
+static Defined *findSymbolAtOffset(const ConcatInputSection *isec,
+                                   uint64_t off) {
+  auto it = llvm::lower_bound(isec->symbols, off, [](Defined *d, uint64_t off) {
+    return d->value < off;
+  });
+  // The offset should point at the exact address of a symbol (with no addend.)
+  if (it == isec->symbols.end() || (*it)->value != off) {
+    assert(isec->wasCoalesced);
+    return nullptr;
+  }
+  return *it;
 }
 
 template <class SectionHeader>
@@ -1002,17 +1016,12 @@ void ObjFile::registerCompactUnwind() {
       // The functionAddress relocations are typically section relocations.
       // However, unwind info operates on a per-symbol basis, so we search for
       // the function symbol here.
-      auto symIt = llvm::lower_bound(
-          referentIsec->symbols, add,
-          [](Defined *d, uint64_t add) { return d->value < add; });
-      // The relocation should point at the exact address of a symbol (with no
-      // addend).
-      if (symIt == referentIsec->symbols.end() || (*symIt)->value != add) {
-        assert(referentIsec->wasCoalesced);
+      Defined *d = findSymbolAtOffset(referentIsec, add);
+      if (!d) {
         ++it;
         continue;
       }
-      (*symIt)->unwindEntry = isec;
+      d->unwindEntry = isec;
       // Since we've sliced away the functionAddress, we should remove the
       // corresponding relocation too. Given that clang emits relocations in
       // reverse order of address, this relocation should be at the end of the
