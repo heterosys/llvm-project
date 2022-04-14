@@ -1979,7 +1979,7 @@ void ScopeHandler::SayAlreadyDeclared(const SourceName &name, Symbol &prev) {
     if (const auto *details{prev.detailsIf<UseDetails>()}) {
       Say(name, "'%s' is already declared in this scoping unit"_err_en_US)
           .Attach(details->location(),
-              "It is use-associated with '%s' in module '%s'"_err_en_US,
+              "It is use-associated with '%s' in module '%s'"_en_US,
               details->symbol().name(), GetUsedModule(*details).name());
     } else {
       SayAlreadyDeclared(name, prev.name());
@@ -6495,7 +6495,9 @@ void ResolveNamesVisitor::HandleProcedureName(
     if (!SetProcFlag(name, *symbol, flag)) {
       return; // reported error
     }
-    CheckImplicitNoneExternal(name.source, *symbol);
+    if (!symbol->has<GenericDetails>()) {
+      CheckImplicitNoneExternal(name.source, *symbol);
+    }
     if (symbol->has<SubprogramDetails>() &&
         symbol->attrs().test(Attr::ABSTRACT)) {
       Say(name, "Abstract interface '%s' may not be called"_err_en_US);

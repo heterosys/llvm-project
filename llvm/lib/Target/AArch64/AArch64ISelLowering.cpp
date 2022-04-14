@@ -1091,8 +1091,6 @@ AArch64TargetLowering::AArch64TargetLowering(const TargetMachine &TM,
     setLoadExtAction(ISD::EXTLOAD,  MVT::v4i32, MVT::v4i8, Custom);
     setLoadExtAction(ISD::SEXTLOAD, MVT::v4i32, MVT::v4i8, Custom);
     setLoadExtAction(ISD::ZEXTLOAD, MVT::v4i32, MVT::v4i8, Custom);
-
-    setOperationAction(ISD::CONCAT_VECTORS, MVT::v4i8, Custom);
   }
 
   if (Subtarget->hasSVE()) {
@@ -4650,32 +4648,49 @@ void selectGatherScatterAddrMode(SDValue &BasePtr, SDValue &Index, EVT MemVT,
 
 SDValue AArch64TargetLowering::LowerMGATHER(SDValue Op,
                                             SelectionDAG &DAG) const {
-  SDLoc DL(Op);
   MaskedGatherSDNode *MGT = cast<MaskedGatherSDNode>(Op);
-  assert(MGT && "Can only custom lower gather load nodes");
 
-  bool IsFixedLength = MGT->getMemoryVT().isFixedLengthVector();
-
-  SDValue Index = MGT->getIndex();
+  SDLoc DL(Op);
   SDValue Chain = MGT->getChain();
   SDValue PassThru = MGT->getPassThru();
   SDValue Mask = MGT->getMask();
   SDValue BasePtr = MGT->getBasePtr();
-  ISD::LoadExtType ExtTy = MGT->getExtensionType();
-
+  SDValue Index = MGT->getIndex();
+  SDValue Scale = MGT->getScale();
+  EVT VT = Op.getValueType();
+  EVT MemVT = MGT->getMemoryVT();
+  ISD::LoadExtType ExtType = MGT->getExtensionType();
   ISD::MemIndexType IndexType = MGT->getIndexType();
+
   bool IsScaled =
       IndexType == ISD::SIGNED_SCALED || IndexType == ISD::UNSIGNED_SCALED;
   bool IsSigned =
       IndexType == ISD::SIGNED_SCALED || IndexType == ISD::SIGNED_UNSCALED;
+
+  // SVE supports an index scaled by sizeof(MemVT.elt) only, everything else
+  // must be calculated before hand.
+  uint64_t ScaleVal = cast<ConstantSDNode>(Scale)->getZExtValue();
+  if (IsScaled && ScaleVal != MemVT.getScalarStoreSize()) {
+    assert(isPowerOf2_64(ScaleVal) && "Expecting power-of-two types");
+    EVT IndexVT = Index.getValueType();
+    Index = DAG.getNode(ISD::SHL, DL, IndexVT, Index,
+                        DAG.getConstant(Log2_32(ScaleVal), DL, IndexVT));
+    Scale = DAG.getTargetConstant(1, DL, Scale.getValueType());
+
+    SDValue Ops[] = {Chain, PassThru, Mask, BasePtr, Index, Scale};
+    IndexType = IsSigned ? ISD::SIGNED_UNSCALED : ISD::UNSIGNED_UNSCALED;
+    return DAG.getMaskedGather(MGT->getVTList(), MemVT, DL, Ops,
+                               MGT->getMemOperand(), IndexType, ExtType);
+  }
+
   bool IdxNeedsExtend =
       getGatherScatterIndexIsExtended(Index) ||
       Index.getSimpleValueType().getVectorElementType() == MVT::i32;
 
-  EVT VT = PassThru.getSimpleValueType();
   EVT IndexVT = Index.getSimpleValueType();
-  EVT MemVT = MGT->getMemoryVT();
   SDValue InputVT = DAG.getValueType(MemVT);
+
+  bool IsFixedLength = MGT->getMemoryVT().isFixedLengthVector();
 
   if (IsFixedLength) {
     assert(Subtarget->useSVEForFixedLengthVectors() &&
@@ -4714,7 +4729,7 @@ SDValue AArch64TargetLowering::LowerMGATHER(SDValue Op,
   selectGatherScatterAddrMode(BasePtr, Index, MemVT, Opcode,
                               /*isGather=*/true, DAG);
 
-  if (ExtTy == ISD::SEXTLOAD)
+  if (ExtType == ISD::SEXTLOAD)
     Opcode = getSignExtendedGatherOpcode(Opcode);
 
   if (IsFixedLength) {
@@ -4751,32 +4766,50 @@ SDValue AArch64TargetLowering::LowerMGATHER(SDValue Op,
 
 SDValue AArch64TargetLowering::LowerMSCATTER(SDValue Op,
                                              SelectionDAG &DAG) const {
-  SDLoc DL(Op);
   MaskedScatterSDNode *MSC = cast<MaskedScatterSDNode>(Op);
-  assert(MSC && "Can only custom lower scatter store nodes");
 
-  bool IsFixedLength = MSC->getMemoryVT().isFixedLengthVector();
-
-  SDValue Index = MSC->getIndex();
+  SDLoc DL(Op);
   SDValue Chain = MSC->getChain();
   SDValue StoreVal = MSC->getValue();
   SDValue Mask = MSC->getMask();
   SDValue BasePtr = MSC->getBasePtr();
-
+  SDValue Index = MSC->getIndex();
+  SDValue Scale = MSC->getScale();
+  EVT VT = StoreVal.getValueType();
+  EVT MemVT = MSC->getMemoryVT();
   ISD::MemIndexType IndexType = MSC->getIndexType();
+
   bool IsScaled =
       IndexType == ISD::SIGNED_SCALED || IndexType == ISD::UNSIGNED_SCALED;
   bool IsSigned =
       IndexType == ISD::SIGNED_SCALED || IndexType == ISD::SIGNED_UNSCALED;
+
+  // SVE supports an index scaled by sizeof(MemVT.elt) only, everything else
+  // must be calculated before hand.
+  uint64_t ScaleVal = cast<ConstantSDNode>(Scale)->getZExtValue();
+  if (IsScaled && ScaleVal != MemVT.getScalarStoreSize()) {
+    assert(isPowerOf2_64(ScaleVal) && "Expecting power-of-two types");
+    EVT IndexVT = Index.getValueType();
+    Index = DAG.getNode(ISD::SHL, DL, IndexVT, Index,
+                        DAG.getConstant(Log2_32(ScaleVal), DL, IndexVT));
+    Scale = DAG.getTargetConstant(1, DL, Scale.getValueType());
+
+    SDValue Ops[] = {Chain, StoreVal, Mask, BasePtr, Index, Scale};
+    IndexType = IsSigned ? ISD::SIGNED_UNSCALED : ISD::UNSIGNED_UNSCALED;
+    return DAG.getMaskedScatter(MSC->getVTList(), MemVT, DL, Ops,
+                                MSC->getMemOperand(), IndexType,
+                                MSC->isTruncatingStore());
+  }
+
   bool NeedsExtend =
       getGatherScatterIndexIsExtended(Index) ||
       Index.getSimpleValueType().getVectorElementType() == MVT::i32;
 
-  EVT VT = StoreVal.getSimpleValueType();
   EVT IndexVT = Index.getSimpleValueType();
   SDVTList VTs = DAG.getVTList(MVT::Other);
-  EVT MemVT = MSC->getMemoryVT();
   SDValue InputVT = DAG.getValueType(MemVT);
+
+  bool IsFixedLength = MSC->getMemoryVT().isFixedLengthVector();
 
   if (IsFixedLength) {
     assert(Subtarget->useSVEForFixedLengthVectors() &&
@@ -11086,40 +11119,6 @@ SDValue AArch64TargetLowering::LowerCONCAT_VECTORS(SDValue Op,
   if (useSVEForFixedLengthVectorVT(Op.getValueType()))
     return LowerFixedLengthConcatVectorsToSVE(Op, DAG);
 
-  if (Op.getOperand(0).getValueType() == MVT::v4i8) {
-    // If we have a concat of v4i8 loads, convert them to a buildvector of f32
-    // loads to prevent having to go through the v4i8 load legalization that
-    // needs to extend each element into a larger type.
-    if (Op.getNumOperands() % 2 == 0 && all_of(Op->op_values(), [](SDValue V) {
-          return V.getValueType() == MVT::v4i8 &&
-                 (V.getOpcode() == ISD::LOAD || V.isUndef());
-        })) {
-      EVT NVT =
-          EVT::getVectorVT(*DAG.getContext(), MVT::f32, Op.getNumOperands());
-      SmallVector<SDValue> Ops;
-      SDLoc DL(Op);
-
-      for (unsigned i = 0; i < Op.getNumOperands(); i++) {
-        SDValue V = Op.getOperand(i);
-        if (V.isUndef())
-          Ops.push_back(DAG.getUNDEF(MVT::f32));
-        else {
-          LoadSDNode *LD = cast<LoadSDNode>(V);
-          if (!LD->isSimple() || LD->isIndexed() ||
-              LD->getExtensionType() != ISD::NON_EXTLOAD)
-            return SDValue();
-          Ops.push_back(DAG.getLoad(MVT::f32, DL, LD->getChain(),
-                                    LD->getBasePtr(), LD->getMemOperand()));
-        }
-      }
-      return DAG.getBitcast(Op.getValueType(),
-                            DAG.getBuildVector(NVT, DL, Ops));
-    }
-
-    // Let the default expansion happen
-    return SDValue();
-  }
-
   assert(Op.getValueType().isScalableVector() &&
          isTypeLegal(Op.getValueType()) &&
          "Expected legal scalable vector type!");
@@ -14698,6 +14697,42 @@ static SDValue performConcatVectorsCombine(SDNode *N,
                              DAG.getNode(ISD::BITCAST, dl, MidVT, N10), Mask));
     }
   }
+
+  if (N->getOperand(0).getValueType() == MVT::v4i8) {
+    // If we have a concat of v4i8 loads, convert them to a buildvector of f32
+    // loads to prevent having to go through the v4i8 load legalization that
+    // needs to extend each element into a larger type.
+    if (N->getNumOperands() % 2 == 0 && all_of(N->op_values(), [](SDValue V) {
+          if (V.getValueType() != MVT::v4i8)
+            return false;
+          if (V.isUndef())
+            return true;
+          LoadSDNode *LD = dyn_cast<LoadSDNode>(V);
+          return LD && V.hasOneUse() && LD->isSimple() && !LD->isIndexed() &&
+                 LD->getExtensionType() == ISD::NON_EXTLOAD;
+        })) {
+      EVT NVT =
+          EVT::getVectorVT(*DAG.getContext(), MVT::f32, N->getNumOperands());
+      SmallVector<SDValue> Ops;
+
+      for (unsigned i = 0; i < N->getNumOperands(); i++) {
+        SDValue V = N->getOperand(i);
+        if (V.isUndef())
+          Ops.push_back(DAG.getUNDEF(MVT::f32));
+        else {
+          LoadSDNode *LD = cast<LoadSDNode>(V);
+          SDValue NewLoad =
+              DAG.getLoad(MVT::f32, dl, LD->getChain(), LD->getBasePtr(),
+                          LD->getMemOperand());
+          DAG.ReplaceAllUsesOfValueWith(SDValue(LD, 1), NewLoad.getValue(1));
+          Ops.push_back(NewLoad);
+        }
+      }
+      return DAG.getBitcast(N->getValueType(0),
+                            DAG.getBuildVector(NVT, dl, Ops));
+    }
+  }
+
 
   // Wait 'til after everything is legalized to try this. That way we have
   // legal vector types and such.
