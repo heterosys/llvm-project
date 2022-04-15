@@ -523,7 +523,7 @@ public:
   void SayAlreadyDeclared(const SourceName &, Symbol &);
   void SayAlreadyDeclared(const SourceName &, const SourceName &);
   void SayWithReason(
-      const parser::Name &, Symbol &, MessageFixedText &&, MessageFixedText &&);
+      const parser::Name &, Symbol &, MessageFixedText &&, Message &&);
   void SayWithDecl(const parser::Name &, Symbol &, MessageFixedText &&);
   void SayLocalMustBeVariable(const parser::Name &, Symbol &);
   void SayDerivedType(const SourceName &, MessageFixedText &&, const Scope &);
@@ -667,9 +667,26 @@ protected:
     } saveInfo;
   } specPartState_;
 
+  // Some declaration processing can and should be deferred to
+  // ResolveExecutionParts() to avoid prematurely creating implicitly-typed
+  // local symbols that should be host associations.
+  struct DeferredDeclarationState {
+    // The content of each namelist group
+    std::list<const parser::NamelistStmt::Group *> namelistGroups;
+  };
+  DeferredDeclarationState *GetDeferredDeclarationState(bool add = false) {
+    if (!add && deferred_.find(&currScope()) == deferred_.end()) {
+      return nullptr;
+    } else {
+      return &deferred_.emplace(&currScope(), DeferredDeclarationState{})
+                  .first->second;
+    }
+  }
+
 private:
   Scope *currScope_{nullptr};
   FuncResultStack funcResultStack_{*this};
+  std::map<Scope *, DeferredDeclarationState> deferred_;
 };
 
 class ModuleVisitor : public virtual ScopeHandler {
@@ -960,6 +977,7 @@ protected:
   void CheckEquivalenceSets();
   bool CheckNotInBlock(const char *);
   bool NameIsKnownOrIntrinsic(const parser::Name &);
+  void FinishNamelists();
 
   // Each of these returns a pointer to a resolved Name (i.e. with symbol)
   // or nullptr in case of error.
@@ -2056,16 +2074,20 @@ void ScopeHandler::SayAlreadyDeclared(
 }
 
 void ScopeHandler::SayWithReason(const parser::Name &name, Symbol &symbol,
-    MessageFixedText &&msg1, MessageFixedText &&msg2) {
-  Say2(name, std::move(msg1), symbol, std::move(msg2));
+    MessageFixedText &&msg1, Message &&msg2) {
+  Say(name, std::move(msg1), symbol.name()).Attach(std::move(msg2));
   context().SetError(symbol, msg1.isFatal());
 }
 
 void ScopeHandler::SayWithDecl(
     const parser::Name &name, Symbol &symbol, MessageFixedText &&msg) {
-  SayWithReason(name, symbol, std::move(msg),
-      symbol.test(Symbol::Flag::Implicit) ? "Implicit declaration of '%s'"_en_US
-                                          : "Declaration of '%s'"_en_US);
+  Say(name, std::move(msg), symbol.name())
+      .Attach(Message{name.source,
+          symbol.test(Symbol::Flag::Implicit)
+              ? "Implicit declaration of '%s'"_en_US
+              : "Declaration of '%s'"_en_US,
+          name.source});
+  context().SetError(symbol, msg.isFatal());
 }
 
 void ScopeHandler::SayLocalMustBeVariable(
@@ -3921,7 +3943,8 @@ bool DeclarationVisitor::Pre(const parser::IntrinsicStmt &x) {
     auto &symbol{DEREF(FindSymbol(name))};
     if (symbol.has<GenericDetails>()) {
       // Generic interface is extending intrinsic; ok
-    } else if (!ConvertToProcEntity(symbol)) {
+    } else if (!symbol.has<HostAssocDetails>() &&
+        !ConvertToProcEntity(symbol)) {
       SayWithDecl(
           name, symbol, "INTRINSIC attribute not allowed on '%s'"_err_en_US);
     } else if (symbol.attrs().test(Attr::EXTERNAL)) { // C840
@@ -3965,8 +3988,24 @@ bool DeclarationVisitor::HandleAttributeStmt(
 }
 Symbol &DeclarationVisitor::HandleAttributeStmt(
     Attr attr, const parser::Name &name) {
-  if (attr == Attr::INTRINSIC && !IsIntrinsic(name.source, std::nullopt)) {
-    Say(name.source, "'%s' is not a known intrinsic procedure"_err_en_US);
+  if (attr == Attr::INTRINSIC) {
+    if (!IsIntrinsic(name.source, std::nullopt)) {
+      Say(name.source, "'%s' is not a known intrinsic procedure"_err_en_US);
+    } else if (currScope().kind() == Scope::Kind::Subprogram ||
+        currScope().kind() == Scope::Kind::Block) {
+      if (auto *symbol{FindSymbol(name)}) {
+        if (symbol->GetUltimate().has<GenericDetails>() &&
+            symbol->owner() != currScope()) {
+          // Declaring a name INTRINSIC when there is a generic
+          // interface of the same name in the host scope.
+          // Host-associate the generic and mark it INTRINSIC
+          // rather than completely overriding the generic.
+          symbol = &MakeHostAssocSymbol(name, *symbol);
+          symbol->attrs().set(Attr::INTRINSIC);
+          return *symbol;
+        }
+      }
+    }
   }
   auto *symbol{FindInScope(name)};
   if (attr == Attr::ASYNCHRONOUS || attr == Attr::VOLATILE) {
@@ -4965,28 +5004,39 @@ bool DeclarationVisitor::Pre(const parser::NamelistStmt::Group &x) {
   if (!CheckNotInBlock("NAMELIST")) { // C1107
     return false;
   }
-
-  NamelistDetails details;
-  for (const auto &name : std::get<std::list<parser::Name>>(x.t)) {
-    auto *symbol{FindSymbol(name)};
-    if (!symbol) {
-      symbol = &MakeSymbol(name, ObjectEntityDetails{});
-      ApplyImplicitRules(*symbol);
-    } else if (!ConvertToObjectEntity(*symbol)) {
-      SayWithDecl(name, *symbol, "'%s' is not a variable"_err_en_US);
-    }
-    symbol->GetUltimate().set(Symbol::Flag::InNamelist);
-    details.add_object(*symbol);
-  }
-
   const auto &groupName{std::get<parser::Name>(x.t)};
   auto *groupSymbol{FindInScope(groupName)};
   if (!groupSymbol || !groupSymbol->has<NamelistDetails>()) {
-    groupSymbol = &MakeSymbol(groupName, std::move(details));
+    groupSymbol = &MakeSymbol(groupName, NamelistDetails{});
     groupSymbol->ReplaceName(groupName.source);
   }
-  groupSymbol->get<NamelistDetails>().add_objects(details.objects());
+  // Name resolution of group items is deferred to FinishNamelists()
+  // so that host association is handled correctly.
+  GetDeferredDeclarationState(true)->namelistGroups.emplace_back(&x);
   return false;
+}
+
+void DeclarationVisitor::FinishNamelists() {
+  if (auto *deferred{GetDeferredDeclarationState()}) {
+    for (const parser::NamelistStmt::Group *group : deferred->namelistGroups) {
+      if (auto *groupSymbol{FindInScope(std::get<parser::Name>(group->t))}) {
+        if (auto *details{groupSymbol->detailsIf<NamelistDetails>()}) {
+          for (const auto &name : std::get<std::list<parser::Name>>(group->t)) {
+            auto *symbol{FindSymbol(name)};
+            if (!symbol) {
+              symbol = &MakeSymbol(name, ObjectEntityDetails{});
+              ApplyImplicitRules(*symbol);
+            } else if (!ConvertToObjectEntity(*symbol)) {
+              SayWithDecl(name, *symbol, "'%s' is not a variable"_err_en_US);
+            }
+            symbol->GetUltimate().set(Symbol::Flag::InNamelist);
+            details->add_object(*symbol);
+          }
+        }
+      }
+    }
+    deferred->namelistGroups.clear();
+  }
 }
 
 bool DeclarationVisitor::Pre(const parser::IoControlSpec &x) {
@@ -5362,8 +5412,7 @@ bool DeclarationVisitor::PassesLocalityChecks(
         "Assumed size array '%s' not allowed in a locality-spec"_err_en_US);
     return false;
   }
-  if (std::optional<MessageFixedText> msg{
-          WhyNotModifiable(symbol, currScope())}) {
+  if (std::optional<Message> msg{WhyNotModifiable(symbol, currScope())}) {
     SayWithReason(name, symbol,
         "'%s' may not appear in a locality-spec because it is not "
         "definable"_err_en_US,
@@ -6871,31 +6920,45 @@ void ResolveNamesVisitor::CreateCommonBlockSymbols(
 
 void ResolveNamesVisitor::CreateGeneric(const parser::GenericSpec &x) {
   auto info{GenericSpecInfo{x}};
-  const SourceName &symbolName{info.symbolName()};
+  SourceName symbolName{info.symbolName()};
   if (IsLogicalConstant(context(), symbolName)) {
     Say(symbolName,
         "Logical constant '%s' may not be used as a defined operator"_err_en_US);
     return;
   }
   GenericDetails genericDetails;
-  if (Symbol * existing{FindInScope(symbolName)}) {
-    if (existing->has<GenericDetails>()) {
-      info.Resolve(existing);
-      return; // already have generic, add to it
+  Symbol *existing{nullptr};
+  // Check all variants of names, e.g. "operator(.ne.)" for "operator(/=)"
+  for (const std::string &n : GetAllNames(context(), symbolName)) {
+    existing = currScope().FindSymbol(n);
+    if (existing) {
+      break;
     }
+  }
+  if (existing) {
     Symbol &ultimate{existing->GetUltimate()};
-    if (auto *ultimateDetails{ultimate.detailsIf<GenericDetails>()}) {
-      // convert a use-associated generic into a local generic
-      genericDetails.CopyFrom(*ultimateDetails);
-      AddGenericUse(genericDetails, existing->name(),
-          existing->get<UseDetails>().symbol());
-    } else if (ultimate.has<SubprogramDetails>() ||
+    if (const auto *existingGeneric{ultimate.detailsIf<GenericDetails>()}) {
+      if (&ultimate.owner() != &currScope()) {
+        // Create a local copy of a host or use associated generic so that
+        // it can be locally extended without corrupting the original.
+        genericDetails.CopyFrom(*existingGeneric);
+        if (const auto *use{existing->detailsIf<UseDetails>()}) {
+          AddGenericUse(genericDetails, existing->name(), use->symbol());
+          EraseSymbol(*existing);
+        }
+        existing = &MakeSymbol(symbolName, Attrs{}, std::move(genericDetails));
+      }
+      info.Resolve(existing);
+      return;
+    }
+    if (ultimate.has<SubprogramDetails>() ||
         ultimate.has<SubprogramNameDetails>()) {
       genericDetails.set_specific(ultimate);
     } else if (ultimate.has<DerivedTypeDetails>()) {
       genericDetails.set_derivedType(ultimate);
     } else {
       SayAlreadyDeclared(symbolName, *existing);
+      return;
     }
     EraseSymbol(*existing);
   }
@@ -7413,6 +7476,7 @@ void ResolveNamesVisitor::ResolveExecutionParts(const ProgramTree &node) {
   if (const auto *exec{node.exec()}) {
     Walk(*exec);
   }
+  FinishNamelists();
   PopScope(); // converts unclassified entities into objects
   for (const auto &child : node.children()) {
     ResolveExecutionParts(child);
