@@ -123,11 +123,6 @@ Bug Fixes
   a lambda expression that shares the name of a variable in a containing
   if/while/for/switch init statement as a redeclaration.
   This fixes `Issue 54913 <https://github.com/llvm/llvm-project/issues/54913>`_.
-- Overload resolution for constrained function templates could use the partial
-  order of constraints to select an overload, even if the parameter types of
-  the functions were different. It now diagnoses this case correctly as an
-  ambiguous call and an error. Fixes
-  `Issue 53640 <https://github.com/llvm/llvm-project/issues/53640>`_.
 
 Improvements to Clang's diagnostics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -287,18 +282,7 @@ ABI Changes in Clang
 OpenMP Support in Clang
 -----------------------
 
-- ``clang-nvlink-wrapper`` tool introduced to support linking of cubin files
-  archived in an archive. See :doc:`ClangNvlinkWrapper`.
-- ``clang-linker-wrapper`` tool introduced to support linking using a new OpenMP
-  target offloading method. See :doc:`ClangLinkerWrapper`.
-- Support for a new driver for OpenMP target offloading has been added as an
-  opt-in feature. The new driver can be selected using ``-fopenmp-new-driver``
-  with clang. Device-side LTO can also be enabled using the new driver by
-  passing ``-foffload-lto=`` as well. The new driver supports the following
-  features:
-  - Linking AMDGPU and NVPTX offloading targets.
-  - Static linking using archive files.
-  - Device-side LTO.
+...
 
 CUDA Support in Clang
 ---------------------
@@ -313,11 +297,6 @@ DWARF Support in Clang
 
 Arm and AArch64 Support in Clang
 --------------------------------
-
-- When using ``-mbranch-protection=bti`` with AArch64, calls to setjmp will
-  now be followed by a BTI instruction. This is done to be compatible with
-  setjmp implementations that return with a br instead of a ret. You can
-  disable this behaviour using the ``-mno-bti-at-return-twice`` option.
 
 Floating Point Support in Clang
 -------------------------------
