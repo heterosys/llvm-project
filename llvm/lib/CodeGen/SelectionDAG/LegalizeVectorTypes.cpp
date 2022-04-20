@@ -2186,8 +2186,8 @@ void DAGTypeLegalizer::SplitVecRes_VECTOR_SHUFFLE(ShuffleVectorSDNode *N,
     assert(Input1->getOpcode() == ISD::BUILD_VECTOR &&
            Input2->getOpcode() == ISD::BUILD_VECTOR &&
            "Expected build vector node.");
-    SmallVector<SDValue> Ops(NewElts,
-                             DAG.getUNDEF(Input1.getOperand(0).getValueType()));
+    EVT EltVT = NewVT.getVectorElementType();
+    SmallVector<SDValue> Ops(NewElts, DAG.getUNDEF(EltVT));
     for (unsigned I = 0; I < NewElts; ++I) {
       if (Mask[I] == UndefMaskElem)
         continue;
@@ -2196,6 +2196,9 @@ void DAGTypeLegalizer::SplitVecRes_VECTOR_SHUFFLE(ShuffleVectorSDNode *N,
         Ops[I] = Input2.getOperand(Idx - NewElts);
       else
         Ops[I] = Input1.getOperand(Idx);
+      // Make the type of all elements the same as the element type.
+      if (Ops[I].getValueType().bitsGT(EltVT))
+        Ops[I] = DAG.getNode(ISD::TRUNCATE, DL, EltVT, Ops[I]);
     }
     return DAG.getBuildVector(NewVT, DL, Ops);
   };
