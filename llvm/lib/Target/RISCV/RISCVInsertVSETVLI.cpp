@@ -393,7 +393,6 @@ public:
     print(dbgs());
     dbgs() << "\n";
   }
-#endif
 
   /// Implement operator<<.
   /// @{
@@ -417,13 +416,16 @@ public:
        << "ScalarMovOp=" << (bool)ScalarMovOp << ", "
        << "SEWLMULRatioOnly=" << (bool)SEWLMULRatioOnly << "}";
   }
+#endif
 };
 
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+LLVM_ATTRIBUTE_USED
 inline raw_ostream &operator<<(raw_ostream &OS, const VSETVLIInfo &V) {
   V.print(OS);
   return OS;
 }
-
+#endif
 
 struct BlockData {
   // The VSETVLIInfo that represents the net changes to the VL/VTYPE registers
