@@ -254,6 +254,8 @@ set(files
   __functional/unary_negate.h
   __functional/unwrap_ref.h
   __functional/weak_result_type.h
+  __fwd/span.h
+  __fwd/string_view.h
   __hash_table
   __ios/fpos.h
   __iterator/access.h
@@ -611,14 +613,8 @@ add_custom_target(generate-cxx-headers ALL DEPENDS ${_all_includes})
 
 add_library(cxx-headers INTERFACE)
 add_dependencies(cxx-headers generate-cxx-headers ${LIBCXX_CXX_ABI_HEADER_TARGET})
-# TODO: Use target_include_directories once we figure out why that breaks the runtimes build
-if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC" OR "${CMAKE_CXX_SIMULATE_ID}" STREQUAL "MSVC")
-  target_compile_options(cxx-headers INTERFACE /I${LIBCXX_GENERATED_INCLUDE_DIR}
-                                     INTERFACE /I${LIBCXX_GENERATED_INCLUDE_TARGET_DIR})
-else()
-  target_compile_options(cxx-headers INTERFACE -I${LIBCXX_GENERATED_INCLUDE_DIR}
-                                     INTERFACE -I${LIBCXX_GENERATED_INCLUDE_TARGET_DIR})
-endif()
+target_include_directories(cxx-headers INTERFACE ${LIBCXX_GENERATED_INCLUDE_DIR}
+                                                 ${LIBCXX_GENERATED_INCLUDE_TARGET_DIR})
 
 if (LIBCXX_INSTALL_HEADERS)
   foreach(file ${files})

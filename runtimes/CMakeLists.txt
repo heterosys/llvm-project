@@ -9,6 +9,28 @@ if(LLVM_ENABLE_RUNTIMES STREQUAL "all" )
   set(LLVM_ENABLE_RUNTIMES ${LLVM_ALL_RUNTIMES})
 endif()
 
+# Some of the runtimes will conditionally use the compiler-rt sanitizers.
+# To make this work smoothly, we ensure that compiler-rt is added first in
+# the list of sub-projects. This allows other sub-projects to have checks
+# like `if(TARGET asan)` to enable building with asan.
+if (compiler-rt IN_LIST LLVM_ENABLE_RUNTIMES)
+  list(REMOVE_ITEM LLVM_ENABLE_RUNTIMES compiler-rt)
+  if(NOT DEFINED LLVM_BUILD_COMPILER_RT OR LLVM_BUILD_COMPILER_RT)
+    list(PREPEND LLVM_ENABLE_RUNTIMES compiler-rt)
+  endif()
+endif()
+
+# If both libc++ and libc++abi are being built, always configure libc++abi before libc++.
+# This allows libc++ to depend on targets set up by libc++abi when it needs to.
+if (libcxx IN_LIST LLVM_ENABLE_RUNTIMES AND libcxxabi IN_LIST LLVM_ENABLE_RUNTIMES)
+  list(FIND LLVM_ENABLE_RUNTIMES libcxx _libcxx_index)
+  list(FIND LLVM_ENABLE_RUNTIMES libcxxabi _libcxxabi_index)
+  if (_libcxx_index LESS _libcxxabi_index)
+    list(TRANSFORM LLVM_ENABLE_RUNTIMES REPLACE "^libcxx$" "libcxxabi" AT ${_libcxx_index})
+    list(TRANSFORM LLVM_ENABLE_RUNTIMES REPLACE "^libcxxabi$" "libcxx" AT ${_libcxxabi_index})
+  endif()
+endif()
+
 foreach(proj ${LLVM_ENABLE_RUNTIMES})
   set(proj_dir "${CMAKE_CURRENT_SOURCE_DIR}/../${proj}")
   if(IS_DIRECTORY ${proj_dir} AND EXISTS ${proj_dir}/CMakeLists.txt)
@@ -42,28 +64,6 @@ list(INSERT CMAKE_MODULE_PATH 0
 
 set(LLVM_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third-party")
 
-function(get_compiler_rt_path path)
-  foreach(entry ${runtimes})
-    get_filename_component(projName ${entry} NAME)
-    if("${projName}" MATCHES "compiler-rt")
-      set(${path} ${entry} PARENT_SCOPE)
-      return()
-    endif()
-  endforeach()
-endfunction()
-
-# Some of the runtimes will conditionally use the compiler-rt sanitizers
-# to make this work smoothly we ensure that compiler-rt is added first in
-# the list of sub-projects. This allows other sub-projects to have checks
-# like `if(TARGET asan)` to enable building with asan.
-get_compiler_rt_path(compiler_rt_path)
-if(compiler_rt_path)
-  list(REMOVE_ITEM runtimes ${compiler_rt_path})
-  if(NOT DEFINED LLVM_BUILD_COMPILER_RT OR LLVM_BUILD_COMPILER_RT)
-    list(INSERT runtimes 0 ${compiler_rt_path})
-  endif()
-endif()
-
 # If building standalone by pointing CMake at this runtimes directory,
 # LLVM_BINARY_DIR isn't set, find_package(LLVM) will fail and these
 # intermediate paths are unset.
@@ -92,6 +92,17 @@ include(LLVMCheckCompilerLinkerFlag)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 
+# CMake omits default compiler include paths, but in runtimes build, we use
+# -nostdinc and -nostdinc++ and control include paths manually so this behavior
+# is undesirable. Resetting CMAKE_{LANG}_IMPLICIT_INCLUDE_DIRECTORIES disables
+# this behavior. See https://gitlab.kitware.com/cmake/cmake/-/issues/19227 for
+# further details no this topic.
+#
+# TODO: We may want to consider filtering out only the paths that are within
+# the toolchain installation and leaving the system paths.
+set(CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES "")
+set(CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES "")
+set(CMAKE_ASM_IMPLICIT_INCLUDE_DIRECTORIES "")
 
 check_c_compiler_flag("" LLVM_RUNTIMES_LINKING_WORKS)
 if (NOT LLVM_RUNTIMES_LINKING_WORKS)
