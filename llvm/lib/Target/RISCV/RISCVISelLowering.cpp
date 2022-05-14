@@ -4903,9 +4903,12 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
     SmallVector<EVT, 9> ContainerVTs(NF, ContainerVT);
     ContainerVTs.push_back(MVT::Other);
     SDVTList VTs = DAG.getVTList(ContainerVTs);
+    SmallVector<SDValue, 12> Ops = {Load->getChain(), IntID};
+    Ops.insert(Ops.end(), NF, DAG.getUNDEF(ContainerVT));
+    Ops.push_back(Op.getOperand(2));
+    Ops.push_back(VL);
     SDValue Result =
-        DAG.getMemIntrinsicNode(ISD::INTRINSIC_W_CHAIN, DL, VTs,
-                                {Load->getChain(), IntID, Op.getOperand(2), VL},
+        DAG.getMemIntrinsicNode(ISD::INTRINSIC_W_CHAIN, DL, VTs, Ops,
                                 Load->getMemoryVT(), Load->getMemOperand());
     SmallVector<SDValue, 9> Results;
     for (unsigned int RetIdx = 0; RetIdx < NF; RetIdx++)
@@ -5718,7 +5721,7 @@ RISCVTargetLowering::lowerFixedLengthVectorLoadToRVV(SDValue Op,
                               Load->getMemoryVT(), Load->getMemOperand());
 
   SDValue Result = convertFromScalableVector(VT, NewLoad, DAG, Subtarget);
-  return DAG.getMergeValues({Result, Load->getChain()}, DL);
+  return DAG.getMergeValues({Result, NewLoad.getValue(1)}, DL);
 }
 
 SDValue
