@@ -23,7 +23,7 @@ LLVM_LIBC_FUNCTION(int, sprintf,
   va_list vlist;
   va_start(vlist, format);
   internal::ArgList args(vlist); // This holder class allows for easier copying
-                                 // and pointer semantics, as well as handing
+                                 // and pointer semantics, as well as handling
                                  // destruction automatically.
   va_end(vlist);
   printf_core::StringWriter str_writer(buffer);
