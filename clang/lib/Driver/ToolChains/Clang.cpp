@@ -3630,12 +3630,6 @@ static void RenderModulesOptions(Compilation &C, const Driver &D,
     HaveModules = true;
   }
 
-  if (Args.hasFlag(options::OPT_fcxx_modules, options::OPT_fno_cxx_modules,
-                   false)) {
-    CmdArgs.push_back("-fcxx-modules");
-    HaveModules = true;
-  }
-
   // -fmodule-maps enables implicit reading of module map files. By default,
   // this is enabled if we are using Clang's flavor of precompiled modules.
   if (Args.hasFlag(options::OPT_fimplicit_module_maps,
@@ -5974,6 +5968,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
           << A->getAsString(Args) << TripleStr;
   }
 
+  if (const Arg *A =
+          Args.getLastArg(options::OPT_mdefault_visibility_export_mapping_EQ)) {
+    if (Triple.isOSAIX())
+      A->render(Args, CmdArgs);
+    else
+      D.Diag(diag::err_drv_unsupported_opt_for_target)
+          << A->getAsString(Args) << TripleStr;
+  }
 
   if (Args.hasFlag(options::OPT_fvisibility_inlines_hidden,
                     options::OPT_fno_visibility_inlines_hidden, false))
