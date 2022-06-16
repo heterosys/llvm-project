@@ -69,3 +69,47 @@ define void @add_double(ptr %pa, ptr %pb, ptr %pc) {
   store double %dadd, ptr %pc
   ret void
 }
+
+define void @add_constant(ptr %pa, ptr %pc) {
+; CHECK-LABEL: add_constant:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    pushq %rbx
+; CHECK-NEXT:    .cfi_def_cfa_offset 16
+; CHECK-NEXT:    .cfi_offset %rbx, -16
+; CHECK-NEXT:    movq %rsi, %rbx
+; CHECK-NEXT:    movzwl (%rdi), %eax
+; CHECK-NEXT:    shll $16, %eax
+; CHECK-NEXT:    movd %eax, %xmm0
+; CHECK-NEXT:    addss {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm0
+; CHECK-NEXT:    callq __truncsfbf2@PLT
+; CHECK-NEXT:    movw %ax, (%rbx)
+; CHECK-NEXT:    popq %rbx
+; CHECK-NEXT:    .cfi_def_cfa_offset 8
+; CHECK-NEXT:    retq
+  %a = load bfloat, ptr %pa
+  %add = fadd bfloat %a, 1.0
+  store bfloat %add, ptr %pc
+  ret void
+}
+
+define void @store_constant(ptr %pc) {
+; CHECK-LABEL: store_constant:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    movw $16256, (%rdi) # imm = 0x3F80
+; CHECK-NEXT:    retq
+  store bfloat 1.0, ptr %pc
+  ret void
+}
+
+define void @fold_ext_trunc(ptr %pa, ptr %pc) {
+; CHECK-LABEL: fold_ext_trunc:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    movzwl (%rdi), %eax
+; CHECK-NEXT:    movw %ax, (%rsi)
+; CHECK-NEXT:    retq
+  %a = load bfloat, ptr %pa
+  %ext = fpext bfloat %a to float
+  %trunc = fptrunc float %ext to bfloat
+  store bfloat %trunc, ptr %pc
+  ret void
+}
