@@ -276,7 +276,6 @@ static void emitDXILOperationTable(std::vector<DXILOperationData> &DXILOps,
   SequenceToOffsetTable<std::string> OpStrings;
 
   StringSet<> ClassSet;
-  StringRef PrevCategory = "";
   for (auto &DXILOp : DXILOps) {
     OpStrings.add(DXILOp.DXILOp.str());
 

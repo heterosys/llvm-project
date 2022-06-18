@@ -199,6 +199,7 @@ static void lowerIntrinsic(DXIL::OpCode DXILOp, Function &F, Module &M) {
     Args.append(CI->arg_begin(), CI->arg_end());
     B.SetInsertPoint(CI);
     CallInst *DXILCI = B.CreateCall(DXILOpFn, Args);
+    LLVM_DEBUG(DXILCI->setName(getOpCodeName(DXILOp)));
     CI->replaceAllUsesWith(DXILCI);
     CI->eraseFromParent();
   }
