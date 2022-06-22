@@ -3131,12 +3131,6 @@ void InnerLoopVectorizer::createInductionResumeValues(
     PHINode *OrigPhi = InductionEntry.first;
     InductionDescriptor II = InductionEntry.second;
 
-    // Create phi nodes to merge from the  backedge-taken check block.
-    PHINode *BCResumeVal =
-        PHINode::Create(OrigPhi->getType(), 3, "bc.resume.val",
-                        LoopScalarPreHeader->getTerminator());
-    // Copy original phi DL over to the new one.
-    BCResumeVal->setDebugLoc(OrigPhi->getDebugLoc());
     Value *&EndValue = IVEndValues[OrigPhi];
     Value *EndValueFromAdditionalBypass = AdditionalBypass.second;
     if (OrigPhi == OldInduction) {
@@ -3172,6 +3166,14 @@ void InnerLoopVectorizer::createInductionResumeValues(
         EndValueFromAdditionalBypass->setName("ind.end");
       }
     }
+
+    // Create phi nodes to merge from the  backedge-taken check block.
+    PHINode *BCResumeVal =
+        PHINode::Create(OrigPhi->getType(), 3, "bc.resume.val",
+                        LoopScalarPreHeader->getTerminator());
+    // Copy original phi DL over to the new one.
+    BCResumeVal->setDebugLoc(OrigPhi->getDebugLoc());
+
     // The new PHI merges the original incoming value, in case of a bypass,
     // or the value at the end of the vectorized loop.
     BCResumeVal->addIncoming(EndValue, LoopMiddleBlock);
@@ -8944,7 +8946,11 @@ VPlanPtr LoopVectorizationPlanner::buildVPlanWithVPRecipes(
     VPBasicBlock *InsertBlock = PrevRecipe->getParent();
     auto *Region = GetReplicateRegion(PrevRecipe);
     if (Region)
-      InsertBlock = cast<VPBasicBlock>(Region->getSingleSuccessor());
+      InsertBlock = dyn_cast<VPBasicBlock>(Region->getSingleSuccessor());
+    if (!InsertBlock) {
+      InsertBlock = new VPBasicBlock(Region->getName() + ".succ");
+      VPBlockUtils::insertBlockAfter(InsertBlock, Region);
+    }
     if (Region || PrevRecipe->isPhi())
       Builder.setInsertPoint(InsertBlock, InsertBlock->getFirstNonPhi());
     else
