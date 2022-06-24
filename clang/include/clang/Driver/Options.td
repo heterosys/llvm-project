@@ -5234,11 +5234,6 @@ def mrelocation_model : Separate<["-"], "mrelocation-model">,
 def fno_math_builtin : Flag<["-"], "fno-math-builtin">,
   HelpText<"Disable implicit builtin knowledge of math functions">,
   MarshallingInfoFlag<LangOpts<"NoMathBuiltin">>;
-def fno_use_ctor_homing: Flag<["-"], "fno-use-ctor-homing">,
-    HelpText<"Don't use constructor homing for debug info">;
-def fuse_ctor_homing: Flag<["-"], "fuse-ctor-homing">,
-    HelpText<"Use constructor homing if we are using limited debug info already">;
-
 } // let Flags = [CC1Option, CC1AsOption, NoDriverOption]
 
 let Flags = [CC1Option, NoDriverOption] in {
@@ -6850,3 +6845,6 @@ def emit_pristine_llvm : DXCFlag<"emit-pristine-llvm">,
   HelpText<"Emit pristine LLVM IR from the frontend by not running any LLVM passes at all."
            "Same as -S + -emit-llvm + -disable-llvm-passes.">;
 def fcgl : DXCFlag<"fcgl">, Alias<emit_pristine_llvm>;
+def enable_16bit_types : DXCFlag<"enable-16bit-types">, Alias<fnative_half_type>,
+  HelpText<"Enable 16-bit types and disable min precision types."
+           "Available in HLSL 2018 and shader model 6.2.">;
