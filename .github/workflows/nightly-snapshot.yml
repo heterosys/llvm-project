@@ -98,6 +98,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.get_release_info.outputs.upload_url }}
-          asset_path: ${{ matrix.os }}-deb/llvm-clang-mlir-dev-${{ steps.date.outputs.date }}-Linux.deb
+          asset_path: ${{ matrix.os }}-deb/llvm-clang-mlir-dev-15.${{ steps.date.outputs.date }}-Linux.deb
           asset_name: llvm-clang-mlir-dev-${{ matrix.os }}.deb
           asset_content_type: application/vnd.debian.binary-package
