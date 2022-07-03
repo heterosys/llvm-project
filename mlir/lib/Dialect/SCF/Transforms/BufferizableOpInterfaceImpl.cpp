@@ -961,42 +961,6 @@ struct ForeachThreadOpInterface
     return BufferRelation::Equivalent;
   }
 
-  LogicalResult resolveConflicts(Operation *op, RewriterBase &rewriter,
-                                 const AnalysisState &state) const {
-    auto bufferizableOp = cast<BufferizableOpInterface>(op);
-    if (failed(bufferizableOp.resolveTensorOpOperandConflicts(rewriter, state)))
-      return failure();
-
-    OpBuilder::InsertionGuard g(rewriter);
-    auto foreachThreadOp = cast<ForeachThreadOp>(op);
-    for (OpResult opResult : foreachThreadOp->getOpResults()) {
-      SmallVector<OpOperand *> destOperands =
-          state.getAliasingOpOperand(opResult);
-      assert(destOperands.size() == 1 &&
-             "expected exactly one aliasing OpOperand");
-      assert(isa<ParallelInsertSliceOp>(destOperands.front()->getOwner()) &&
-             "expected ParallelInsertSliceOp");
-
-      // Nothing to do if there is no conflict.
-      if (state.isInPlace(*destOperands.front()))
-        continue;
-
-      // Insert tensor allocation.
-      bool isYielded = state.isTensorYielded(opResult);
-      FailureOr<Value> alloc = allocateTensorForShapedValue(
-          rewriter, op->getLoc(), destOperands.front()->get(),
-          /*escape=*/isYielded, state.getOptions());
-      if (failed(alloc))
-        return failure();
-
-      // Update terminator operand.
-      rewriter.updateRootInPlace(destOperands.front()->getOwner(),
-                                 [&]() { destOperands.front()->set(*alloc); });
-    }
-
-    return success();
-  }
-
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options) const {
     auto foreachThreadOp = cast<ForeachThreadOp>(op);
@@ -1079,26 +1043,9 @@ struct ParallelInsertSliceOpInterface
     if (&opOperand != &op->getOpOperand(1) /*dest*/)
       return {};
 
-    // ParallelInsertSliceOp itself has no results. Tensors are returned via
-    // the parent op.
-    auto foreachThreadOp = op->getParentOfType<ForeachThreadOp>();
-    assert(foreachThreadOp &&
-           "could not find valid owner of parallel_insert_slice");
-
-    // The i-th ParallelInsertSliceOp result is returned via the i-th OpResult
-    // of the parent ForeachThreadOp.
-    Block *block = op->getBlock();
-    unsigned int opIdx = 0;
-    for (ParallelInsertSliceOp insertOp :
-         block->getOps<ParallelInsertSliceOp>()) {
-      if (insertOp.getOperation() == op)
-        break;
-      ++opIdx;
-    }
-    assert(opIdx < foreachThreadOp->getNumResults() &&
-           "could not find op inside terminator op");
-
-    return {foreachThreadOp->getResult(opIdx)};
+    // ParallelInsertSliceOp itself has no results, query its tied op results.
+    auto insertOp = cast<ParallelInsertSliceOp>(op);
+    return {insertOp.getTiedOpResult()};
   }
 
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
@@ -1118,60 +1065,104 @@ struct ParallelInsertSliceOpInterface
 
   LogicalResult resolveConflicts(Operation *op, RewriterBase &rewriter,
                                  const AnalysisState &state) const {
-    // RaW conflicts are resolved as part of ForeachThreadOp.
+    // This interface method is overridden because we want to set a custom
+    // insertion point for tensor copies. They should be inserted right before
+    // the ForeachThreadOp. E.g.:
+    //
+    // %r0, %r1 = foreach_thead ... {
+    //   ...
+    //   perform_concurrently {
+    //     parallel_insert_slice %a into %b ... {inplace = ["true", "true"]}
+    //     parallel_insert_slice %c into %d ... {inplace = ["true", "false"]}
+    //   }
+    // }
+    //
+    // After TensorCopyInsertion:
+    //
+    // %copy = bufferization.alloc_tensor() copy(%d)
+    // %r0, %r1 = foreach_thead ... {
+    //   ...
+    //   perform_concurrently {
+    //     parallel_insert_slice %a into %b ...
+    //     parallel_insert_slice %c into %copy ...
+    //   }
+    // }
+
+    OpBuilder::InsertionGuard g(rewriter);
+    auto parallelInsertSliceOp = cast<ParallelInsertSliceOp>(op);
+    ParallelCombiningOpInterface parallelCombiningParent =
+        parallelInsertSliceOp.getParallelCombiningParent();
+    Operation *parallelIteratingOp = parallelCombiningParent->getParentOp();
+
+    // Nothing to do if the destination tensor is inplace.
+    assert(state.isInPlace(op->getOpOperand(0) /*src*/) &&
+           "source is always in-place");
+    if (state.isInPlace(op->getOpOperand(1) /*dest*/))
+      return success();
+
+    // Find corresponding OpResult.
+    OpResult opResult = parallelInsertSliceOp.getTiedOpResult();
+
+    // Insert tensor allocation right before the ForeachThreadOp.
+    rewriter.setInsertionPoint(parallelIteratingOp);
+    bool isYielded = state.isTensorYielded(opResult);
+    FailureOr<Value> alloc = allocateTensorForShapedValue(
+        rewriter, op->getLoc(), parallelInsertSliceOp.getDest(),
+        /*escape=*/isYielded, state.getOptions());
+    if (failed(alloc))
+      return failure();
+
+    // Update destination operand.
+    rewriter.updateRootInPlace(parallelInsertSliceOp, [&]() {
+      parallelInsertSliceOp.getDestMutable().assign(*alloc);
+    });
+
     return success();
   }
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options) const {
     OpBuilder::InsertionGuard g(rewriter);
-    auto insertOp = cast<ParallelInsertSliceOp>(op);
-    auto performConcurrentlyOp = cast<PerformConcurrentlyOp>(op->getParentOp());
-    auto foreachThreadOp =
-        cast<ForeachThreadOp>(performConcurrentlyOp->getParentOp());
+    auto parallelInsertSliceOp = cast<ParallelInsertSliceOp>(op);
+    ParallelCombiningOpInterface parallelCombiningParent =
+        parallelInsertSliceOp.getParallelCombiningParent();
+    Operation *parallelIteratingOp = parallelCombiningParent->getParentOp();
 
     // Get destination buffer.
     FailureOr<Value> destBuffer =
-        getBuffer(rewriter, insertOp.getDest(), options);
+        getBuffer(rewriter, parallelInsertSliceOp.getDest(), options);
     if (failed(destBuffer))
       return failure();
 
-    // Bufferize the ParallelInsertSliceOp outside of the PerformConcurrentlyOp.
-    rewriter.setInsertionPoint(performConcurrentlyOp);
+    // Bufferize the ParallelInsertSliceOp outside of `parallelCombiningParent`.
+    rewriter.setInsertionPoint(parallelCombiningParent);
     FailureOr<Value> srcBuffer =
-        getBuffer(rewriter, insertOp.getSource(), options);
+        getBuffer(rewriter, parallelInsertSliceOp.getSource(), options);
     if (failed(srcBuffer))
       return failure();
     Value subview = rewriter.create<memref::SubViewOp>(
-        insertOp.getLoc(), *destBuffer, insertOp.getMixedOffsets(),
-        insertOp.getMixedSizes(), insertOp.getMixedStrides());
+        parallelInsertSliceOp.getLoc(), *destBuffer,
+        parallelInsertSliceOp.getMixedOffsets(),
+        parallelInsertSliceOp.getMixedSizes(),
+        parallelInsertSliceOp.getMixedStrides());
     // This memcpy will fold away if everything bufferizes in-place.
-    if (failed(options.createMemCpy(rewriter, insertOp.getLoc(), *srcBuffer,
-                                    subview)))
+    if (failed(options.createMemCpy(rewriter, parallelInsertSliceOp.getLoc(),
+                                    *srcBuffer, subview)))
       return failure();
-    rewriter.eraseOp(op);
 
-    // Replace all uses of ForeachThreadOp (just the corresponding result).
-    rewriter.setInsertionPointAfter(foreachThreadOp);
+    // Replace all uses of parallelIteratingOp (just the corresponding result).
+    rewriter.setInsertionPointAfter(parallelIteratingOp);
     Value toTensorOp =
-        rewriter.create<ToTensorOp>(foreachThreadOp.getLoc(), *destBuffer);
-    // PerformConcurrentlyOp can have multiple ParallelInserSliceOps. Find the
-    // index of `op` within yielding ops.
-    unsigned resultNum = 0;
-    for (Operation &nextOp : performConcurrentlyOp.yieldingOps()) {
-      if (&nextOp == op)
-        break;
-      resultNum++;
-    }
-    assert(resultNum < foreachThreadOp->getNumResults() &&
-           "ParallelInsertSliceOp not found in PerformConcurrentlyOp");
+        rewriter.create<ToTensorOp>(parallelIteratingOp->getLoc(), *destBuffer);
+    // PerformConcurrentlyOp can have multiple ParallelInsertSliceOps.
     SmallVector<OpOperand *> resultUses = llvm::to_vector(
-        llvm::map_range(foreachThreadOp->getResult(resultNum).getUses(),
+        llvm::map_range(parallelInsertSliceOp.getTiedOpResult().getUses(),
                         [](OpOperand &use) { return &use; }));
     for (OpOperand *use : resultUses) {
       rewriter.updateRootInPlace(use->getOwner(),
                                  [&]() { use->set(toTensorOp); });
     }
+    rewriter.eraseOp(op);
     return success();
   }
 

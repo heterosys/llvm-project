@@ -354,7 +354,6 @@ bool X86TargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
                            .Default(NoSSE);
     SSELevel = std::max(SSELevel, Level);
 
-    // Turn on _float16 for x86 (feature sse2)
     HasFloat16 = SSELevel >= SSE2;
 
     MMX3DNowEnum ThreeDNowLevel = llvm::StringSwitch<MMX3DNowEnum>(Feature)
