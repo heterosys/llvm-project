@@ -321,6 +321,11 @@ New Compiler Flags
   removed in the future once clang supports all such operations.
 - Added the ``-print-diagnostic-options`` option, which prints a list of
   warnings the compiler supports.
+- Added the ``-Warray-parameter`` warning. It diagnoses differences between
+  array parameters between function redeclarations (arrays of different extents,
+  etc). This flag is related to the same flag in GCC, but is different in that
+  it does not accept an explicitly- specified warning level and use of this flag
+  has no effect on ``-Warray-bounds``.
 
 Deprecated Compiler Flags
 -------------------------
@@ -675,5 +680,5 @@ this release by going into the "``clang/docs/``" directory in the Clang
 tree.
 
 If you have any questions or comments about Clang, please feel free to
-contact us via the `mailing
-list <https://lists.llvm.org/mailman/listinfo/cfe-dev>`_.
+contact us on the Discourse forums (Clang Frontend category)
+<https://discourse.llvm.org/c/clang/6>`_.
