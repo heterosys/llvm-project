@@ -2509,9 +2509,7 @@ bool TargetLowering::SimplifyDemandedBits(
         // won't wrap after simplification.
         Flags.setNoSignedWrap(false);
         Flags.setNoUnsignedWrap(false);
-        SDValue NewOp =
-            TLO.DAG.getNode(Op.getOpcode(), dl, VT, Op0, Op1, Flags);
-        return TLO.CombineTo(Op, NewOp);
+        Op->setFlags(Flags);
       }
       return true;
     }
@@ -5262,17 +5260,13 @@ TargetLowering::ParseConstraints(const DataLayout &DL,
         case 32:
         case 64:
         case 128:
-          OpInfo.ConstraintVT =
-              MVT::getVT(IntegerType::get(OpTy->getContext(), BitSize), true);
+          OpTy = IntegerType::get(OpTy->getContext(), BitSize);
           break;
         }
-      } else if (PointerType *PT = dyn_cast<PointerType>(OpTy)) {
-        unsigned PtrSize = DL.getPointerSizeInBits(PT->getAddressSpace());
-        OpInfo.ConstraintVT = MVT::getIntegerVT(PtrSize);
-      } else {
-        OpInfo.ConstraintVT = MVT::getVT(OpTy, true);
       }
 
+      EVT VT = getAsmOperandValueType(DL, OpTy, true);
+      OpInfo.ConstraintVT = VT.isSimple() ? VT.getSimpleVT() : MVT::Other;
       ArgNo++;
     }
   }
