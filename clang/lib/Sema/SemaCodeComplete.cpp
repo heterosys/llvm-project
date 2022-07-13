@@ -2782,7 +2782,7 @@ static void findTypeLocationForBlockDecl(const TypeSourceInfo *TSInfo,
   while (true) {
     // Look through typedefs.
     if (!SuppressBlock) {
-      if (TypedefTypeLoc TypedefTL = TL.getAs<TypedefTypeLoc>()) {
+      if (TypedefTypeLoc TypedefTL = TL.getAsAdjusted<TypedefTypeLoc>()) {
         if (TypeSourceInfo *InnerTSInfo =
                 TypedefTL.getTypedefNameDecl()->getTypeSourceInfo()) {
           TL = InnerTSInfo->getTypeLoc().getUnqualifiedLoc();
@@ -5362,8 +5362,8 @@ private:
       // Overwrite existing if the new member has more info.
       // The preference of . vs :: vs -> is fairly arbitrary.
       if (/*Inserted*/ R.second ||
-          std::make_tuple(M.ArgTypes.hasValue(), M.ResultType != nullptr,
-                          M.Operator) > std::make_tuple(O.ArgTypes.hasValue(),
+          std::make_tuple(M.ArgTypes.has_value(), M.ResultType != nullptr,
+                          M.Operator) > std::make_tuple(O.ArgTypes.has_value(),
                                                         O.ResultType != nullptr,
                                                         O.Operator))
         O = std::move(M);

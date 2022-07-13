@@ -305,16 +305,19 @@ void foo(int x) {
   EXPECT_EQ("TestUnion", CRecordType->getDecl()->getName());
 
   auto D = getByName("d").getAs<nonloc::CompoundVal>();
-  ASSERT_TRUE(D.hasValue());
+  ASSERT_TRUE(D.has_value());
   auto Begin = D->begin();
   ASSERT_NE(D->end(), Begin);
   ++Begin;
   ASSERT_EQ(D->end(), Begin);
   auto LD = D->begin()->getAs<nonloc::LazyCompoundVal>();
-  ASSERT_TRUE(LD.hasValue());
+  ASSERT_TRUE(LD.has_value());
   auto LDT = LD->getType(Context);
   ASSERT_FALSE(LDT.isNull());
-  const auto *DRecordType = dyn_cast<RecordType>(LDT);
+  const auto *DElaboratedType = dyn_cast<ElaboratedType>(LDT);
+  ASSERT_NE(DElaboratedType, nullptr);
+  const auto *DRecordType =
+      dyn_cast<RecordType>(DElaboratedType->getNamedType());
   ASSERT_NE(DRecordType, nullptr);
   EXPECT_EQ("TestStruct", DRecordType->getDecl()->getName());
 }
