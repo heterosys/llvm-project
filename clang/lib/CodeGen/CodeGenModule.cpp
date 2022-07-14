@@ -445,6 +445,7 @@ void CodeGenModule::checkAliases() {
 
 void CodeGenModule::clear() {
   DeferredDeclsToEmit.clear();
+  EmittedDeferredDecls.clear();
   if (OpenMPRuntime)
     OpenMPRuntime->clear();
 }
@@ -510,6 +511,9 @@ static void setVisibilityFromDLLStorageClass(const clang::LangOptions &LO,
 
 void CodeGenModule::Release() {
   EmitDeferred();
+  DeferredDecls.insert(EmittedDeferredDecls.begin(),
+                       EmittedDeferredDecls.end());
+  EmittedDeferredDecls.clear();
   EmitVTablesOpportunistically();
   applyGlobalValReplacements();
   applyReplacements();
@@ -1743,7 +1747,7 @@ void CodeGenModule::GenKernelArgMetadata(llvm::Function *Fn,
       // Get image and pipe access qualifier:
       if (ty->isImageType() || ty->isPipeType()) {
         const Decl *PDecl = parm;
-        if (const auto *TD = ty->getAs<TypedefType>())
+        if (auto *TD = dyn_cast<TypedefType>(ty))
           PDecl = TD->getDecl();
         const OpenCLAccessAttr *A = PDecl->getAttr<OpenCLAccessAttr>();
         if (A && A->isWriteOnly())
@@ -4288,6 +4292,9 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName, llvm::Type *Ty,
         D->hasExternalStorage())
       getCUDARuntime().handleVarRegistration(D, *GV);
   }
+
+  if (D)
+    SanitizerMD->reportGlobal(GV, *D);
 
   LangAS ExpectedAS =
       D ? D->getType().getAddressSpace()
