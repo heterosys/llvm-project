@@ -1723,6 +1723,26 @@ bool TargetLowering::SimplifyDemandedBits(
       if ((ShAmt < DemandedBits.getActiveBits()) &&
           ShrinkDemandedOp(Op, BitWidth, DemandedBits, TLO))
         return true;
+    } else {
+      // This is a variable shift, so we can't shift the demand mask by a known
+      // amount. But if we are not demanding high bits, then we are not
+      // demanding those bits from the pre-shifted operand either.
+      if (unsigned CTLZ = DemandedBits.countLeadingZeros()) {
+        APInt DemandedFromOp(APInt::getLowBitsSet(BitWidth, BitWidth - CTLZ));
+        if (SimplifyDemandedBits(Op0, DemandedFromOp, DemandedElts, Known, TLO,
+                                 Depth + 1)) {
+          SDNodeFlags Flags = Op.getNode()->getFlags();
+          if (Flags.hasNoSignedWrap() || Flags.hasNoUnsignedWrap()) {
+            // Disable the nsw and nuw flags. We can no longer guarantee that we
+            // won't wrap after simplification.
+            Flags.setNoSignedWrap(false);
+            Flags.setNoUnsignedWrap(false);
+            Op->setFlags(Flags);
+          }
+          return true;
+        }
+        Known.resetAll();
+      }
     }
 
     // If we are only demanding sign bits then we can use the shift source
@@ -1995,9 +2015,9 @@ bool TargetLowering::SimplifyDemandedBits(
     KnownBits Known1 = TLO.DAG.computeKnownBits(Op1, DemandedElts, Depth + 1);
     Known = KnownBits::umin(Known0, Known1);
     if (Optional<bool> IsULE = KnownBits::ule(Known0, Known1))
-      return TLO.CombineTo(Op, IsULE.getValue() ? Op0 : Op1);
+      return TLO.CombineTo(Op, IsULE.value() ? Op0 : Op1);
     if (Optional<bool> IsULT = KnownBits::ult(Known0, Known1))
-      return TLO.CombineTo(Op, IsULT.getValue() ? Op0 : Op1);
+      return TLO.CombineTo(Op, IsULT.value() ? Op0 : Op1);
     break;
   }
   case ISD::UMAX: {
@@ -2008,9 +2028,9 @@ bool TargetLowering::SimplifyDemandedBits(
     KnownBits Known1 = TLO.DAG.computeKnownBits(Op1, DemandedElts, Depth + 1);
     Known = KnownBits::umax(Known0, Known1);
     if (Optional<bool> IsUGE = KnownBits::uge(Known0, Known1))
-      return TLO.CombineTo(Op, IsUGE.getValue() ? Op0 : Op1);
+      return TLO.CombineTo(Op, IsUGE.value() ? Op0 : Op1);
     if (Optional<bool> IsUGT = KnownBits::ugt(Known0, Known1))
-      return TLO.CombineTo(Op, IsUGT.getValue() ? Op0 : Op1);
+      return TLO.CombineTo(Op, IsUGT.value() ? Op0 : Op1);
     break;
   }
   case ISD::BITREVERSE: {
