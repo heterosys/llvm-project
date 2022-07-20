@@ -1109,9 +1109,9 @@ bool Attributor::getAssumedSimplifiedValues(
   const auto &SimplificationCBs = SimplificationCallbacks.lookup(IRP);
   for (auto &CB : SimplificationCBs) {
     Optional<Value *> CBResult = CB(IRP, AA, UsedAssumedInformation);
-    if (!CBResult.hasValue())
+    if (!CBResult.has_value())
       continue;
-    Value *V = CBResult.getValue();
+    Value *V = CBResult.value();
     if (!V)
       return false;
     if ((S & AA::ValueScope::Interprocedural) ||
