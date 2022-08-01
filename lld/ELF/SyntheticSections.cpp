@@ -431,16 +431,6 @@ void EhFrameSection::addSectionAux(EhInputSection *sec) {
     addRecords<ELFT>(sec, rels.relas);
 }
 
-void EhFrameSection::addSection(EhInputSection *sec) {
-  sec->parent = this;
-
-  alignment = std::max(alignment, sec->alignment);
-  sections.push_back(sec);
-
-  for (auto *ds : sec->dependentSections)
-    dependentSections.push_back(ds);
-}
-
 // Used by ICF<ELFT>::handleLSDA(). This function is very similar to
 // EhFrameSection::addRecords().
 template <class ELFT, class RelTy>
@@ -478,13 +468,8 @@ void EhFrameSection::iterateFDEWithLSDA(
 
 static void writeCieFde(uint8_t *buf, ArrayRef<uint8_t> d) {
   memcpy(buf, d.data(), d.size());
-
-  size_t aligned = alignToPowerOf2(d.size(), config->wordsize);
-  assert(std::all_of(buf + d.size(), buf + aligned,
-                     [](uint8_t c) { return c == 0; }));
-
   // Fix the size field. -4 since size does not include the size field itself.
-  write32(buf, aligned - 4);
+  write32(buf, d.size() - 4);
 }
 
 void EhFrameSection::finalizeContents() {
@@ -514,11 +499,11 @@ void EhFrameSection::finalizeContents() {
   size_t off = 0;
   for (CieRecord *rec : cieRecords) {
     rec->cie->outputOff = off;
-    off += alignToPowerOf2(rec->cie->size, config->wordsize);
+    off += rec->cie->size;
 
     for (EhSectionPiece *fde : rec->fdes) {
       fde->outputOff = off;
-      off += alignToPowerOf2(fde->size, config->wordsize);
+      off += fde->size;
     }
   }
 
@@ -3345,8 +3330,13 @@ template <class ELFT> void elf::splitSections() {
 
 void elf::combineEhSections() {
   llvm::TimeTraceScope timeScope("Combine EH sections");
-  for (EhInputSection *sec : ehInputSections)
-    sec->getPartition().ehFrame->addSection(sec);
+  for (EhInputSection *sec : ehInputSections) {
+    EhFrameSection &eh = *sec->getPartition().ehFrame;
+    sec->parent = &eh;
+    eh.alignment = std::max(eh.alignment, sec->alignment);
+    eh.sections.push_back(sec);
+    llvm::append_range(eh.dependentSections, sec->dependentSections);
+  }
 
   if (!mainPart->armExidx)
     return;
