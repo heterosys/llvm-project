@@ -47,16 +47,16 @@ Write,fill_n,Nikolas Klauser,`D123462 <https://llvm.org/D123462>`_,✅
 Write,transform,Nikolas Klauser,`D122173 <https://llvm.org/D122173>`_,✅
 Write,generate,Konstantin Varlamov,`D130552 <https://llvm.org/D130552>`_,✅
 Write,generate_n,Konstantin Varlamov,`D130552 <https://llvm.org/D130552>`_,✅
-Write,remove_copy,Nikolas Klauser,n/a,Not started
-Write,remove_copy_if,Nikolas Klauser,n/a,Not started
+Write,remove_copy,Nikolas Klauser,`D130599 <https://llvm.org/D130599>`_,✅
+Write,remove_copy_if,Nikolas Klauser,`D130599 <https://llvm.org/D130599>`_,✅
 Write,replace,Nikolas Klauser,`D126283 <https://llvm.org/D126283>`_,✅
 Write,replace_if,Nikolas Klauser,`D126283 <https://llvm.org/D126283>`_,✅
-Write,replace_copy,Nikolas Klauser,`D129806 <https://llvm.org/D129806>`_,Under review
-Write,replace_copy_if,Nikolas Klauser,`D129806 <https://llvm.org/D129806>`_,Under review
+Write,replace_copy,Nikolas Klauser,`D129806 <https://llvm.org/D129806>`_,✅
+Write,replace_copy_if,Nikolas Klauser,`D129806 <https://llvm.org/D129806>`_,✅
 Write,swap_ranges,Nikolas Klauser,`D116303 <https://llvm.org/D116303>`_,✅
 Write,reverse_copy,Nikolas Klauser,`D127211 <https://llvm.org/D127211>`_,✅
 Write,rotate_copy,Nikolas Klauser,`D127211 <https://llvm.org/D127211>`_,✅
-Write,sample,Not assigned,n/a,Not started
+Write,sample,Konstantin Varlamov,`D130865 <https://llvm.org/D130865>`_,✅
 Write,unique_copy,Hui Xie,`D130404 <https://llvm.org/D130404>`_,✅
 Write,partition_copy,Konstantin Varlamov,`D130070 <https://llvm.org/D130070>`_,✅
 Write,partial_sort_copy,Konstantin Varlamov,`D130532 <https://llvm.org/D130532>`_,✅
@@ -82,8 +82,8 @@ Permutation,make_heap,Konstantin Varlamov,`D128115 <https://llvm.org/D128115>`_,
 Permutation,push_heap,Konstantin Varlamov,`D128115 <https://llvm.org/D128115>`_,✅
 Permutation,pop_heap,Konstantin Varlamov,`D128115 <https://llvm.org/D128115>`_,✅
 Permutation,sort_heap,Konstantin Varlamov,`D128115 <https://llvm.org/D128115>`_,✅
-Permutation,prev_permutation,Not assigned,n/a,Not started
-Permutation,next_permutation,Not assigned,n/a,Not started
+Permutation,next_permutation,Nikolas Klauser,`D129859 <https://llvm.org/D129859>`_,✅
+Permutation,prev_permutation,Nikolas Klauser,`D129859 <https://llvm.org/D129859>`_,✅
 Uninitialised memory,uninitialized_copy,Konstantin Varlamov,`D116023 <https://llvm.org/D116023>`_,✅
 Uninitialised memory,uninitialized_copy_n,Konstantin Varlamov,`D116023 <https://llvm.org/D116023>`_,✅
 Uninitialised memory,uninitialized_fill,Konstantin Varlamov,`D115626 <https://llvm.org/D115626>`_,✅
