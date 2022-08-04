@@ -67,6 +67,8 @@ Improvements to Clang's diagnostics
   enum without a fixed underlying type is set to a value outside the range of
   the enumeration's values. Fixes
   `Issue 50055: <https://github.com/llvm/llvm-project/issues/50055>`_.
+- Clang will now check compile-time determinable string literals as format strings.
+  This fixes `Issue 55805: <https://github.com/llvm/llvm-project/issues/55805>`_.
 
 Non-comprehensive list of changes in this release
 -------------------------------------------------
@@ -108,6 +110,16 @@ C++ Language Changes in Clang
 C++20 Feature Support
 ^^^^^^^^^^^^^^^^^^^^^
 
+- Support capturing structured bindings in lambdas
+  (`P1091R3 <https://wg21.link/p1091r3>`_ and `P1381R1 <https://wg21.link/P1381R1>`).
+  This fixes issues `GH52720 <https://github.com/llvm/llvm-project/issues/52720>`_,
+  `GH54300 <https://github.com/llvm/llvm-project/issues/54300>`_,
+  `GH54301 <https://github.com/llvm/llvm-project/issues/54301>`_,
+  and `GH49430 <https://github.com/llvm/llvm-project/issues/49430>`_.
+
+
+
+
 C++2b Feature Support
 ^^^^^^^^^^^^^^^^^^^^^
 
@@ -137,6 +149,8 @@ CUDA Support in Clang
 
 X86 Support in Clang
 --------------------
+
+- Support ``-mindirect-branch-cs-prefix`` for call and jmp to indirect thunk.
 
 DWARF Support in Clang
 ----------------------
