@@ -55,6 +55,8 @@ def loongarch_bstrins
     : SDNode<"LoongArchISD::BSTRINS", SDT_LoongArchBStrIns>;
 def loongarch_bstrpick
     : SDNode<"LoongArchISD::BSTRPICK", SDT_LoongArchBStrPick>;
+def loongarch_revb_2h : SDNode<"LoongArchISD::REVB_2H", SDTUnaryOp>;
+def loongarch_revb_2w : SDNode<"LoongArchISD::REVB_2W", SDTUnaryOp>;
 
 //===----------------------------------------------------------------------===//
 // Operand and SDNode transformation definitions.
@@ -659,6 +661,10 @@ def : PatGprGpr<or, OR>;
 def : PatGprImm<or, ORI, uimm12>;
 def : PatGprGpr<xor, XOR>;
 def : PatGprImm<xor, XORI, uimm12>;
+def : Pat<(not GPR:$rj), (NOR GPR:$rj, R0)>;
+def : Pat<(not (or GPR:$rj, GPR:$rk)), (NOR GPR:$rj, GPR:$rk)>;
+def : Pat<(or GPR:$rj, (not GPR:$rk)), (ORN GPR:$rj, GPR:$rk)>;
+def : Pat<(and GPR:$rj, (not GPR:$rk)), (ANDN GPR:$rj, GPR:$rk)>;
 
 /// FrameIndex calculations
 let Predicates = [IsLA32] in {
@@ -816,6 +822,19 @@ def : Pat<(loongarch_bstrpick GPR:$rj, uimm6:$msbd, uimm6:$lsbd),
           (BSTRPICK_D GPR:$rj, uimm6:$msbd, uimm6:$lsbd)>;
 } // Predicates = [IsLA64]
 
+/// Byte-swapping
+
+def : Pat<(loongarch_revb_2h GPR:$rj), (REVB_2H GPR:$rj)>;
+
+let Predicates = [IsLA32] in {
+def : Pat<(bswap GPR:$rj), (ROTRI_W (REVB_2H GPR:$rj), 16)>;
+} // Predicates = [IsLA32]
+
+let Predicates = [IsLA64] in {
+def : Pat<(loongarch_revb_2w GPR:$rj), (REVB_2W GPR:$rj)>;
+def : Pat<(bswap GPR:$rj), (REVB_D GPR:$rj)>;
+} // Predicates = [IsLA64]
+
 /// Loads
 
 multiclass LdPat<PatFrag LoadOp, LAInst Inst, ValueType vt = GRLenVT> {
@@ -838,6 +857,24 @@ defm : LdPat<zextloadi32, LD_WU, i64>;
 defm : LdPat<load, LD_D, i64>;
 } // Predicates = [IsLA64]
 
+// LA64 register-register-addressed loads
+let Predicates = [IsLA64] in {
+class RegRegLdPat<PatFrag LoadOp, LAInst Inst>
+  : Pat<(i64 (LoadOp (add BaseAddr:$rj, GPR:$rk))),
+        (Inst BaseAddr:$rj, GPR:$rk)>;
+
+def : RegRegLdPat<extloadi8, LDX_B>;
+def : RegRegLdPat<sextloadi8, LDX_B>;
+def : RegRegLdPat<zextloadi8, LDX_BU>;
+def : RegRegLdPat<extloadi16, LDX_H>;
+def : RegRegLdPat<sextloadi16, LDX_H>;
+def : RegRegLdPat<zextloadi16, LDX_HU>;
+def : RegRegLdPat<extloadi32, LDX_W>;
+def : RegRegLdPat<sextloadi32, LDX_W>;
+def : RegRegLdPat<zextloadi32, LDX_WU>;
+def : RegRegLdPat<load, LDX_D>;
+} // Predicates = [IsLA64]
+
 /// Stores
 
 multiclass StPat<PatFrag StoreOp, LAInst Inst, RegisterClass StTy,
@@ -854,6 +891,18 @@ defm : StPat<store, ST_W, GPR, i32>, Requires<[IsLA32]>;
 let Predicates = [IsLA64] in {
 defm : StPat<truncstorei32, ST_W, GPR, i64>;
 defm : StPat<store, ST_D, GPR, i64>;
+} // Predicates = [IsLA64]
+
+// LA64 register-register-addressed stores
+let Predicates = [IsLA64] in {
+class RegRegStPat<PatFrag StoreOp, LAInst Inst, RegisterClass StTy>
+  : Pat<(StoreOp (i64 StTy:$rd), (add BaseAddr:$rj, GPR:$rk)),
+        (Inst StTy:$rd, BaseAddr:$rj, GPR:$rk)>;
+
+def : RegRegStPat<truncstorei8, STX_B, GPR>;
+def : RegRegStPat<truncstorei16, STX_H, GPR>;
+def : RegRegStPat<truncstorei32, STX_W, GPR>;
+def : RegRegStPat<store, STX_D, GPR>;
 } // Predicates = [IsLA64]
 
 /// Atomic loads and stores

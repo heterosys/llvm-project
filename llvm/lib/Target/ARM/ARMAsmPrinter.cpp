@@ -82,8 +82,7 @@ void ARMAsmPrinter::emitFunctionEntryLabel() {
     OutStreamer->emitSymbolAttribute(S, MCSA_ELF_TypeFunction);
     OutStreamer->emitLabel(S);
   }
-
-  OutStreamer->emitLabel(CurrentFnSym);
+  AsmPrinter::emitFunctionEntryLabel();
 }
 
 void ARMAsmPrinter::emitXXStructor(const DataLayout &DL, const Constant *CV) {
@@ -892,7 +891,7 @@ MCSymbol *ARMAsmPrinter::GetARMGVSymbol(const GlobalValue *GV,
 
     return MCSym;
   } else if (Subtarget->isTargetELF()) {
-    return getSymbol(GV);
+    return getSymbolPreferLocal(*GV);
   }
   llvm_unreachable("unexpected target");
 }
