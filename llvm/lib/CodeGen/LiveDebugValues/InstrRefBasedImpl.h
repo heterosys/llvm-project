@@ -979,7 +979,6 @@ public:
   void defVar(const MachineInstr &MI, const DbgValueProperties &Properties,
               const SmallVectorImpl<DbgOpID> &DebugOps) {
     assert(MI.isDebugValue() || MI.isDebugRef());
-    assert(DebugOps.size() <= 1);
     DebugVariable Var(MI.getDebugVariable(), MI.getDebugExpression(),
                       MI.getDebugLoc()->getInlinedAt());
     DbgValue Rec = (DebugOps.size() > 0)
@@ -1402,6 +1401,7 @@ public:
   void dump_mloc_transfer(const MLocTransferMap &mloc_transfer) const;
 
   bool isCalleeSaved(LocIdx L) const;
+  bool isCalleeSavedReg(Register R) const;
 
   bool hasFoldedStackStore(const MachineInstr &MI) {
     // Instruction must have a memory operand that's a stack slot, and isn't
