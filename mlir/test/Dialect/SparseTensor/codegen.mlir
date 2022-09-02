@@ -36,10 +36,26 @@
 }>
 
 // CHECK-LABEL: func @sparse_nop(
-//  CHECK-SAME: %[[A:.*]]: tuple<memref<1xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>>) -> tuple<memref<1xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>>
+//  CHECK-SAME: %[[A:.*]]: tuple<memref<1xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>>)
 //       CHECK: return %[[A]] : tuple<memref<1xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>>
 func.func @sparse_nop(%arg0: tensor<?xf64, #SparseVector>) -> tensor<?xf64, #SparseVector> {
   return %arg0 : tensor<?xf64, #SparseVector>
+}
+
+// CHECK-LABEL: func @sparse_nop_cast(
+//  CHECK-SAME: %[[A:.*]]: tuple<memref<1xindex>, memref<?xi32>, memref<?xi64>, memref<?xf32>>)
+//       CHECK: return %[[A]] : tuple<memref<1xindex>, memref<?xi32>, memref<?xi64>, memref<?xf32>>
+func.func @sparse_nop_cast(%arg0: tensor<64xf32, #SparseVector>) -> tensor<?xf32, #SparseVector> {
+  %0 = tensor.cast %arg0 : tensor<64xf32, #SparseVector> to tensor<?xf32, #SparseVector>
+  return %0 : tensor<?xf32, #SparseVector>
+}
+
+// CHECK-LABEL: func @sparse_nop_cast_3d(
+//  CHECK-SAME: %[[A:.*]]: tuple<memref<3xindex>, memref<?xf32>>)
+//       CHECK: return %[[A]] : tuple<memref<3xindex>, memref<?xf32>>
+func.func @sparse_nop_cast_3d(%arg0: tensor<10x20x30xf32, #Dense3D>) -> tensor<?x?x?xf32, #Dense3D> {
+  %0 = tensor.cast %arg0 : tensor<10x20x30xf32, #Dense3D> to tensor<?x?x?xf32, #Dense3D>
+  return %0 : tensor<?x?x?xf32, #Dense3D>
 }
 
 // CHECK-LABEL: func @sparse_dense_2d(
@@ -71,7 +87,7 @@ func.func @sparse_dcsr(%arg0: tensor<?x?xf64, #DCSR>) {
 // fold using the original static dimension sizes.
 //
 // CHECK-LABEL: func @sparse_dense_3d(
-//  CHECK-SAME: %[[A:.*]]: tuple<memref<3xindex>, memref<6000xf64>>) -> index {
+//  CHECK-SAME: %[[A:.*]]: tuple<memref<3xindex>, memref<?xf64>>)
 //       CHECK: %[[C:.*]] = arith.constant 20 : index
 //       CHECK: return %[[C]] : index
 func.func @sparse_dense_3d(%arg0: tensor<10x20x30xf64, #Dense3D>) -> index {
@@ -86,7 +102,7 @@ func.func @sparse_dense_3d(%arg0: tensor<10x20x30xf64, #Dense3D>) -> index {
 // since the latter honors the dimOrdering.
 //
 // CHECK-LABEL: func @sparse_dense_3d_dyn(
-//  CHECK-SAME: %[[A:.*]]: tuple<memref<3xindex>, memref<?xf64>>) -> index {
+//  CHECK-SAME: %[[A:.*]]: tuple<memref<3xindex>, memref<?xf64>>)
 //       CHECK: %[[C:.*]] = arith.constant 2 : index
 //       CHECK: %[[F:.*]] = sparse_tensor.storage_get %[[A]][0] : tuple<memref<3xindex>, memref<?xf64>> to memref<3xindex>
 //       CHECK: %[[L:.*]] = memref.load %[[F]][%[[C]]] : memref<3xindex>
@@ -124,4 +140,20 @@ func.func @sparse_indices_dcsr(%arg0: tensor<?x?xf64, #DCSR>) -> memref<?xi64> {
 func.func @sparse_values_dcsr(%arg0: tensor<?x?xf64, #DCSR>) -> memref<?xf64> {
   %0 = sparse_tensor.values %arg0 : tensor<?x?xf64, #DCSR> to memref<?xf64>
   return %0 : memref<?xf64>
+}
+
+// CHECK-LABEL: func @sparse_dealloc_csr(
+//  CHECK-SAME: %[[A:.*]]: tuple<memref<2xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>>)
+//       CHECK: %[[F0:.*]] = sparse_tensor.storage_get %[[A]][0] : tuple<memref<2xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>> to memref<2xindex>
+//       CHECK: memref.dealloc %[[F0]] : memref<2xindex>
+//       CHECK: %[[F1:.*]] = sparse_tensor.storage_get %[[A]][1] : tuple<memref<2xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>> to memref<?xi32>
+//       CHECK: memref.dealloc %[[F1]] : memref<?xi32>
+//       CHECK: %[[F2:.*]] = sparse_tensor.storage_get %[[A]][2] : tuple<memref<2xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>> to memref<?xi64>
+//       CHECK: memref.dealloc %[[F2]] : memref<?xi64>
+//       CHECK: %[[F3:.*]] = sparse_tensor.storage_get %[[A]][3] : tuple<memref<2xindex>, memref<?xi32>, memref<?xi64>, memref<?xf64>> to memref<?xf64>
+//       CHECK: memref.dealloc %[[F3]] : memref<?xf64>
+//       CHECK: return
+func.func @sparse_dealloc_csr(%arg0: tensor<?x?xf64, #CSR>) {
+  bufferization.dealloc_tensor %arg0 : tensor<?x?xf64, #CSR>
+  return
 }

@@ -783,10 +783,16 @@ void MemorySanitizer::createUserspaceApi(Module &M) {
   // Create the callback.
   // FIXME: this function should have "Cold" calling conv,
   // which is not yet implemented.
-  StringRef WarningFnName = Recover ? "__msan_warning_with_origin"
-                                    : "__msan_warning_with_origin_noreturn";
-  WarningFn =
-      M.getOrInsertFunction(WarningFnName, IRB.getVoidTy(), IRB.getInt32Ty());
+  if (TrackOrigins) {
+    StringRef WarningFnName = Recover ? "__msan_warning_with_origin"
+                                      : "__msan_warning_with_origin_noreturn";
+    WarningFn =
+        M.getOrInsertFunction(WarningFnName, IRB.getVoidTy(), IRB.getInt32Ty());
+  } else {
+    StringRef WarningFnName =
+        Recover ? "__msan_warning" : "__msan_warning_noreturn";
+    WarningFn = M.getOrInsertFunction(WarningFnName, IRB.getVoidTy());
+  }
 
   // Create the global TLS variables.
   RetvalTLS =
@@ -1046,6 +1052,15 @@ static unsigned TypeSizeToSizeIndex(unsigned TypeSize) {
 
 namespace {
 
+/// Helper class to attach debug information of the given instruction onto new
+/// instructions inserted after.
+class NextNodeIRBuilder : public IRBuilder<> {
+public:
+  explicit NextNodeIRBuilder(Instruction *IP) : IRBuilder<>(IP->getNextNode()) {
+    SetCurrentDebugLocation(IP->getDebugLoc());
+  }
+};
+
 /// This class does all the work for a given function. Store and Load
 /// instructions store and load corresponding shadow and origin
 /// values. Most instructions propagate shadow from arguments to their
@@ -1238,7 +1253,10 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (!Origin)
       Origin = (Value *)IRB.getInt32(0);
     assert(Origin->getType()->isIntegerTy());
-    IRB.CreateCall(MS.WarningFn, Origin)->setCannotMerge();
+    if (MS.CompileKernel || MS.TrackOrigins)
+      IRB.CreateCall(MS.WarningFn, Origin)->setCannotMerge();
+    else
+      IRB.CreateCall(MS.WarningFn)->setCannotMerge();
     // FIXME: Insert UnreachableInst if !MS.Recover?
     // This may invalidate some of the following checks and needs to be done
     // at the very end.
@@ -1967,7 +1985,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void visitLoadInst(LoadInst &I) {
     assert(I.getType()->isSized() && "Load type must have size");
     assert(!I.getMetadata(LLVMContext::MD_nosanitize));
-    IRBuilder<> IRB(I.getNextNode());
+    NextNodeIRBuilder IRB(&I);
     Type *ShadowTy = getShadowTy(&I);
     Value *Addr = I.getPointerOperand();
     Value *ShadowPtr = nullptr, *OriginPtr = nullptr;
@@ -3639,9 +3657,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         IRB.CreateExtractElement(makeAddAcquireOrderingTable(IRB), Ordering);
     CB.setArgOperand(3, NewOrdering);
 
-    IRBuilder<> NextIRB(CB.getNextNode());
-    NextIRB.SetCurrentDebugLocation(CB.getDebugLoc());
-
+    NextNodeIRBuilder NextIRB(&CB);
     Value *SrcShadowPtr, *SrcOriginPtr;
     std::tie(SrcShadowPtr, SrcOriginPtr) =
         getShadowOriginPtr(SrcPtr, NextIRB, NextIRB.getInt8Ty(), Align(1),
@@ -3996,8 +4012,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   void instrumentAlloca(AllocaInst &I, Instruction *InsPoint = nullptr) {
     if (!InsPoint)
       InsPoint = &I;
-    IRBuilder<> IRB(InsPoint->getNextNode());
-    IRB.SetCurrentDebugLocation(InsPoint->getDebugLoc());
+    NextNodeIRBuilder IRB(InsPoint);
     const DataLayout &DL = F.getParent()->getDataLayout();
     uint64_t TypeSize = DL.getTypeAllocSize(I.getAllocatedType());
     Value *Len = ConstantInt::get(MS.IntptrTy, TypeSize);
@@ -4474,7 +4489,7 @@ struct VarArgAMD64Helper : public VarArgHelper {
     // Copy va_list shadow from the backup copy of the TLS contents.
     for (size_t i = 0, n = VAStartInstrumentationList.size(); i < n; i++) {
       CallInst *OrigInst = VAStartInstrumentationList[i];
-      IRBuilder<> IRB(OrigInst->getNextNode());
+      NextNodeIRBuilder IRB(OrigInst);
       Value *VAListTag = OrigInst->getArgOperand(0);
 
       Type *RegSaveAreaPtrTy = Type::getInt64PtrTy(*MS.C);
@@ -4616,7 +4631,7 @@ struct VarArgMIPS64Helper : public VarArgHelper {
     // Copy va_list shadow from the backup copy of the TLS contents.
     for (size_t i = 0, n = VAStartInstrumentationList.size(); i < n; i++) {
       CallInst *OrigInst = VAStartInstrumentationList[i];
-      IRBuilder<> IRB(OrigInst->getNextNode());
+      NextNodeIRBuilder IRB(OrigInst);
       Value *VAListTag = OrigInst->getArgOperand(0);
       Type *RegSaveAreaPtrTy = Type::getInt64PtrTy(*MS.C);
       Value *RegSaveAreaPtrPtr =
@@ -4805,7 +4820,7 @@ struct VarArgAArch64Helper : public VarArgHelper {
     // the TLS contents.
     for (size_t i = 0, n = VAStartInstrumentationList.size(); i < n; i++) {
       CallInst *OrigInst = VAStartInstrumentationList[i];
-      IRBuilder<> IRB(OrigInst->getNextNode());
+      NextNodeIRBuilder IRB(OrigInst);
 
       Value *VAListTag = OrigInst->getArgOperand(0);
 
@@ -5046,7 +5061,7 @@ struct VarArgPowerPC64Helper : public VarArgHelper {
     // Copy va_list shadow from the backup copy of the TLS contents.
     for (size_t i = 0, n = VAStartInstrumentationList.size(); i < n; i++) {
       CallInst *OrigInst = VAStartInstrumentationList[i];
-      IRBuilder<> IRB(OrigInst->getNextNode());
+      NextNodeIRBuilder IRB(OrigInst);
       Value *VAListTag = OrigInst->getArgOperand(0);
       Type *RegSaveAreaPtrTy = Type::getInt64PtrTy(*MS.C);
       Value *RegSaveAreaPtrPtr =
@@ -5366,7 +5381,7 @@ struct VarArgSystemZHelper : public VarArgHelper {
     for (size_t VaStartNo = 0, VaStartNum = VAStartInstrumentationList.size();
          VaStartNo < VaStartNum; VaStartNo++) {
       CallInst *OrigInst = VAStartInstrumentationList[VaStartNo];
-      IRBuilder<> IRB(OrigInst->getNextNode());
+      NextNodeIRBuilder IRB(OrigInst);
       Value *VAListTag = OrigInst->getArgOperand(0);
       copyRegSaveArea(IRB, VAListTag);
       copyOverflowArea(IRB, VAListTag);
