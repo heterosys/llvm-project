@@ -146,7 +146,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DepthFirstIterator.h"
-#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
@@ -1078,7 +1078,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   };
   SmallVector<ShadowOriginAndInsertPoint, 16> InstrumentationList;
   bool InstrumentLifetimeStart = ClHandleLifetimeIntrinsics;
-  SmallSet<AllocaInst *, 16> AllocaSet;
+  SmallSetVector<AllocaInst *, 16> AllocaSet;
   SmallVector<std::pair<IntrinsicInst *, AllocaInst *>, 16> LifetimeStartList;
   SmallVector<StoreInst *, 16> StoreList;
 
@@ -1274,8 +1274,14 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
       bool InstrumentWithCalls,
       ArrayRef<ShadowOriginAndInsertPoint> InstructionChecks) {
     const DataLayout &DL = F.getParent()->getDataLayout();
+    // Disable combining in some cases. TrackOrigins checks each shadow to pick
+    // correct origin. InstrumentWithCalls expects to reduce shadow using API.
+    bool Combine = !InstrumentWithCalls && !MS.TrackOrigins;
+    Instruction *Instruction = InstructionChecks.front().OrigIns;
+    Value *Shadow = nullptr;
     for (const auto &ShadowData : InstructionChecks) {
-      IRBuilder<> IRB(ShadowData.OrigIns);
+      assert(ShadowData.OrigIns == Instruction);
+      IRBuilder<> IRB(Instruction);
 
       LLVM_DEBUG(dbgs() << "  SHAD0 : " << *ShadowData.Shadow << "\n");
       Value *ConvertedShadow = convertShadowToScalar(ShadowData.Shadow, IRB);
@@ -1289,18 +1295,51 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         if (llvm::isKnownNonZero(ConvertedShadow, DL)) {
           // Report as the value is definitely uninitialized.
           insertWarningFn(IRB, ShadowData.Origin);
+          if (!MS.Recover)
+            return; // Always fail and stop here, not need to check the rest.
           // Skip entire instruction,
           continue;
         }
         // Fallback to runtime check, which still can be optimized out later.
       }
-      materializeOneCheck(IRB, ConvertedShadow, ShadowData.Origin,
-                          InstrumentWithCalls);
+
+      if (!Combine) {
+        materializeOneCheck(IRB, ConvertedShadow, ShadowData.Origin,
+                            InstrumentWithCalls);
+        continue;
+      }
+
+      Value *BoolShadow = convertToBool(ConvertedShadow, IRB, "_mscmp");
+      Shadow = Shadow ? IRB.CreateOr(Shadow, BoolShadow, "_msor") : BoolShadow;
+    }
+
+    if (Shadow) {
+      assert(Combine);
+      IRBuilder<> IRB(Instruction);
+      materializeOneCheck(IRB, Shadow, nullptr, false);
     }
   }
 
   void materializeChecks(bool InstrumentWithCalls) {
-    materializeInstructionChecks(InstrumentWithCalls, InstrumentationList);
+    llvm::stable_sort(InstrumentationList,
+                      [](const ShadowOriginAndInsertPoint &L,
+                         const ShadowOriginAndInsertPoint &R) {
+                        return L.OrigIns < R.OrigIns;
+                      });
+
+    for (auto I = InstrumentationList.begin();
+         I != InstrumentationList.end();) {
+      auto J =
+          std::find_if(I + 1, InstrumentationList.end(),
+                       [L = I->OrigIns](const ShadowOriginAndInsertPoint &R) {
+                         return L != R.OrigIns;
+                       });
+      // Process all checks of instruction at once.
+      materializeInstructionChecks(InstrumentWithCalls,
+                                   ArrayRef<ShadowOriginAndInsertPoint>(I, J));
+      I = J;
+    }
+
     LLVM_DEBUG(dbgs() << "DONE:\n" << F);
   }
 
@@ -1353,7 +1392,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (InstrumentLifetimeStart) {
       for (auto Item : LifetimeStartList) {
         instrumentAlloca(*Item.second, Item.first);
-        AllocaSet.erase(Item.second);
+        AllocaSet.remove(Item.second);
       }
     }
     // Poison the allocas for which we didn't instrument the corresponding
