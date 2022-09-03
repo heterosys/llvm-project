@@ -89,6 +89,8 @@ Bug Fixes
 - Fix a crash when attempting to default a virtual constexpr non-special member
   function in a derived class. This fixes
   `Issue 57431 <https://github.com/llvm/llvm-project/issues/57431>`_
+- Fix a crash where we attempt to define a deleted destructor. This fixes
+  `Issue 57516 <https://github.com/llvm/llvm-project/issues/57516>`_
 
 
 Improvements to Clang's diagnostics
@@ -211,9 +213,16 @@ C++20 Feature Support
 - Correctly set expression evaluation context as 'immediate function context' in
   consteval functions.
   This fixes `GH51182 <https://github.com/llvm/llvm-project/issues/51182>`
+
 - Fixes an assert crash caused by looking up missing vtable information on ``consteval``
   virtual functions. Fixes `GH55065 <https://github.com/llvm/llvm-project/issues/55065>`_.
 
+- Skip rebuilding lambda expressions in arguments of immediate invocations.
+  This fixes `GH56183 <https://github.com/llvm/llvm-project/issues/56183>`_,
+  `GH51695 <https://github.com/llvm/llvm-project/issues/51695>`_,
+  `GH50455 <https://github.com/llvm/llvm-project/issues/50455>`_,
+  `GH54872 <https://github.com/llvm/llvm-project/issues/54872>`_,
+  `GH54587 <https://github.com/llvm/llvm-project/issues/54587>`_.
 
 C++2b Feature Support
 ^^^^^^^^^^^^^^^^^^^^^
@@ -282,6 +291,8 @@ libclang
 
 - Introduced the new function `clang_getUnqualifiedType`, which mimics
   the behavior of `QualType::getUnqualifiedType` for `CXType`.
+- Introduced the new function `clang_getNonReferenceType`, which mimics
+  the behavior of `QualType::getNonReferenceType` for `CXType`.
 
 Static Analyzer
 ---------------
