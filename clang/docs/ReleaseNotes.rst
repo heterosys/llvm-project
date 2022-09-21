@@ -70,6 +70,8 @@ code bases.
   results do not change before/after setting
   ``-Werror=incompatible-function-pointer-types`` to avoid incompatibility with
   Clang 16.
+- Clang now disallows types whose sizes aren't a multiple of their alignments to
+  be used as the element type of arrays.
 
   .. code-block:: c
 
@@ -398,6 +400,8 @@ libclang
   the behavior of ``QualType::getUnqualifiedType`` for ``CXType``.
 - Introduced the new function ``clang_getNonReferenceType``, which mimics
   the behavior of ``QualType::getNonReferenceType`` for ``CXType``.
+- Introduced the new function ``clang_CXXMethod_isDeleted``, which queries
+  whether the method is declared ``= delete``.
 
 Static Analyzer
 ---------------
