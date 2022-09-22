@@ -208,6 +208,8 @@ Improvements to Clang's diagnostics
   underlying type is ``long long`` or ``unsigned long long`` as an extension in
   C89 mode . Clang previously only diagnosed if the literal had an explicit
   ``LL`` suffix.
+- Clang now correctly diagnoses index that refers past the last possible element
+  of FAM-like arrays.
 
 Non-comprehensive list of changes in this release
 -------------------------------------------------
@@ -343,6 +345,10 @@ C++20 Feature Support
   `Issue 50455 <https://github.com/llvm/llvm-project/issues/50455>`_,
   `Issue 54872 <https://github.com/llvm/llvm-project/issues/54872>`_,
   `Issue 54587 <https://github.com/llvm/llvm-project/issues/54587>`_.
+- Clang now correctly delays the instantiation of function constraints until
+  the time of checking, which should now allow the libstdc++ ranges implementation
+  to work for at least trivial examples.  This fixes
+  `Issue 44178 <https://github.com/llvm/llvm-project/issues/44178>`_.
 
 C++2b Feature Support
 ^^^^^^^^^^^^^^^^^^^^^
