@@ -5114,15 +5114,6 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
         IntNo == Intrinsic::riscv_zip ? RISCVISD::ZIP : RISCVISD::UNZIP;
     return DAG.getNode(Opc, DL, XLenVT, Op.getOperand(1));
   }
-  case Intrinsic::riscv_bcompress:
-  case Intrinsic::riscv_bdecompress: {
-    unsigned Opc = IntNo == Intrinsic::riscv_bcompress ? RISCVISD::BCOMPRESS
-                                                       : RISCVISD::BDECOMPRESS;
-    return DAG.getNode(Opc, DL, XLenVT, Op.getOperand(1), Op.getOperand(2));
-  }
-  case Intrinsic::riscv_bfp:
-    return DAG.getNode(RISCVISD::BFP, DL, XLenVT, Op.getOperand(1),
-                       Op.getOperand(2));
   case Intrinsic::riscv_vmv_x_s:
     assert(Op.getValueType() == XLenVT && "Unexpected VT!");
     return DAG.getNode(RISCVISD::VMV_X_S, DL, Op.getValueType(),
@@ -7058,34 +7049,6 @@ SDValue RISCVTargetLowering::lowerEH_DWARF_CFA(SDValue Op,
   return DAG.getFrameIndex(FI, PtrVT);
 }
 
-static RISCVISD::NodeType getRISCVWOpcodeByIntr(unsigned IntNo) {
-  switch (IntNo) {
-  default:
-    llvm_unreachable("Unexpected Intrinsic");
-  case Intrinsic::riscv_bcompress:
-    return RISCVISD::BCOMPRESSW;
-  case Intrinsic::riscv_bdecompress:
-    return RISCVISD::BDECOMPRESSW;
-  case Intrinsic::riscv_bfp:
-    return RISCVISD::BFPW;
-  }
-}
-
-// Converts the given intrinsic to a i64 operation with any extension.
-static SDValue customLegalizeToWOpByIntr(SDNode *N, SelectionDAG &DAG,
-                                         unsigned IntNo) {
-  SDLoc DL(N);
-  RISCVISD::NodeType WOpcode = getRISCVWOpcodeByIntr(IntNo);
-  // Deal with the Instruction Operands
-  SmallVector<SDValue, 3> NewOps;
-  for (SDValue Op : drop_begin(N->ops()))
-    // Promote the operand to i64 type
-    NewOps.push_back(DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, Op));
-  SDValue NewRes = DAG.getNode(WOpcode, DL, MVT::i64, NewOps);
-  // ReplaceNodeResults requires we maintain the same type for the return value.
-  return DAG.getNode(ISD::TRUNCATE, DL, N->getValueType(0), NewRes);
-}
-
 // Returns the opcode of the target-specific SDNode that implements the 32-bit
 // form of the given Opcode.
 static RISCVISD::NodeType getRISCVWOpcode(unsigned Opcode) {
@@ -7541,14 +7504,6 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
     default:
       llvm_unreachable(
           "Don't know how to custom type legalize this intrinsic!");
-    case Intrinsic::riscv_bcompress:
-    case Intrinsic::riscv_bdecompress:
-    case Intrinsic::riscv_bfp: {
-      assert(N->getValueType(0) == MVT::i32 && Subtarget.is64Bit() &&
-             "Unexpected custom legalisation");
-      Results.push_back(customLegalizeToWOpByIntr(N, DAG, IntNo));
-      break;
-    }
     case Intrinsic::riscv_orc_b: {
       SDValue NewOp =
           DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, N->getOperand(1));
@@ -8916,15 +8871,6 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
       return SDValue(N, 0);
     break;
   }
-  case RISCVISD::BCOMPRESSW:
-  case RISCVISD::BDECOMPRESSW: {
-    // Only the lower 32 bits of LHS and RHS are read.
-    if (SimplifyDemandedLowBitsHelper(0, 32) ||
-        SimplifyDemandedLowBitsHelper(1, 32))
-      return SDValue(N, 0);
-
-    break;
-  }
   case RISCVISD::FMV_X_ANYEXTH:
   case RISCVISD::FMV_X_ANYEXTW_RV64: {
     SDLoc DL(N);
@@ -9074,26 +9020,27 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
     if (!DCI.isBeforeLegalize())
       break;
     SDValue Index, ScaleOp;
-    bool IsIndexScaled = false;
     bool IsIndexSigned = false;
     if (const auto *VPGSN = dyn_cast<VPGatherScatterSDNode>(N)) {
       Index = VPGSN->getIndex();
       ScaleOp = VPGSN->getScale();
-      IsIndexScaled = VPGSN->isIndexScaled();
       IsIndexSigned = VPGSN->isIndexSigned();
+      assert(!VPGSN->isIndexScaled() &&
+             "Scaled gather/scatter should not be formed");
     } else {
       const auto *MGSN = cast<MaskedGatherScatterSDNode>(N);
       Index = MGSN->getIndex();
       ScaleOp = MGSN->getScale();
-      IsIndexScaled = MGSN->isIndexScaled();
       IsIndexSigned = MGSN->isIndexSigned();
+      assert(!MGSN->isIndexScaled() &&
+             "Scaled gather/scatter should not be formed");
+
     }
     EVT IndexVT = Index.getValueType();
     MVT XLenVT = Subtarget.getXLenVT();
     // RISCV indexed loads only support the "unsigned unscaled" addressing
     // mode, so anything else must be manually legalized.
     bool NeedsIdxLegalization =
-        IsIndexScaled ||
         (IsIndexSigned && IndexVT.getVectorElementType().bitsLT(XLenVT));
     if (!NeedsIdxLegalization)
       break;
@@ -9108,17 +9055,6 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
       IndexVT = IndexVT.changeVectorElementType(XLenVT);
       Index = DAG.getNode(IsIndexSigned ? ISD::SIGN_EXTEND : ISD::ZERO_EXTEND,
                           DL, IndexVT, Index);
-    }
-
-    if (IsIndexScaled) {
-      // Manually scale the indices.
-      // TODO: Sanitize the scale operand here?
-      // TODO: For VP nodes, should we use VP_SHL here?
-      unsigned Scale = cast<ConstantSDNode>(ScaleOp)->getZExtValue();
-      assert(isPowerOf2_32(Scale) && "Expecting power-of-two types");
-      SDValue SplatScale = DAG.getConstant(Log2_32(Scale), DL, IndexVT);
-      Index = DAG.getNode(ISD::SHL, DL, IndexVT, Index, SplatScale);
-      ScaleOp = DAG.getTargetConstant(1, DL, ScaleOp.getValueType());
     }
 
     ISD::MemIndexType NewIndexTy = ISD::UNSIGNED_SCALED;
@@ -9615,9 +9551,6 @@ unsigned RISCVTargetLowering::ComputeNumSignBitsForTargetNode(
   case RISCVISD::REMUW:
   case RISCVISD::ROLW:
   case RISCVISD::RORW:
-  case RISCVISD::BCOMPRESSW:
-  case RISCVISD::BDECOMPRESSW:
-  case RISCVISD::BFPW:
   case RISCVISD::FCVT_W_RV64:
   case RISCVISD::FCVT_WU_RV64:
   case RISCVISD::STRICT_FCVT_W_RV64:
@@ -11670,12 +11603,6 @@ const char *RISCVTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(ORC_B)
   NODE_NAME_CASE(ZIP)
   NODE_NAME_CASE(UNZIP)
-  NODE_NAME_CASE(BFP)
-  NODE_NAME_CASE(BFPW)
-  NODE_NAME_CASE(BCOMPRESS)
-  NODE_NAME_CASE(BCOMPRESSW)
-  NODE_NAME_CASE(BDECOMPRESS)
-  NODE_NAME_CASE(BDECOMPRESSW)
   NODE_NAME_CASE(VMV_V_X_VL)
   NODE_NAME_CASE(VFMV_V_F_VL)
   NODE_NAME_CASE(VMV_X_S)
