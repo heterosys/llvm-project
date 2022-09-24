@@ -2060,12 +2060,19 @@ void FuncResultStack::CompleteFunctionResultType() {
   // If the function has a type in the prefix, process it now.
   FuncInfo *info{Top()};
   if (info && &info->scope == &scopeHandler_.currScope()) {
-    if (info->parsedType) {
+    if (info->parsedType && info->resultSymbol) {
       scopeHandler_.messageHandler().set_currStmtSource(info->source);
       if (const auto *type{
               scopeHandler_.ProcessTypeSpec(*info->parsedType, true)}) {
-        if (!scopeHandler_.context().HasError(info->resultSymbol)) {
-          info->resultSymbol->SetType(*type);
+        Symbol &symbol{*info->resultSymbol};
+        if (!scopeHandler_.context().HasError(symbol)) {
+          if (symbol.GetType()) {
+            scopeHandler_.Say(symbol.name(),
+                "Function cannot have both an explicit type prefix and a RESULT suffix"_err_en_US);
+            scopeHandler_.context().SetError(symbol);
+          } else {
+            symbol.SetType(*type);
+          }
         }
       }
       info->parsedType = nullptr;
@@ -7102,24 +7109,12 @@ bool ModuleVisitor::Pre(const parser::AccessStmt &x) {
     defaultAccess_ = accessAttr;
   } else {
     for (const auto &accessId : accessIds) {
-      common::visit(
-          common::visitors{
-              [=](const parser::Name &y) {
-                Resolve(y, SetAccess(y.source, accessAttr));
-              },
-              [=](const Indirection<parser::GenericSpec> &y) {
-                auto info{GenericSpecInfo{y.value()}};
-                const auto &symbolName{info.symbolName()};
-                if (auto *symbol{FindInScope(symbolName)}) {
-                  info.Resolve(&SetAccess(symbolName, accessAttr, symbol));
-                } else if (info.kind().IsName()) {
-                  info.Resolve(&SetAccess(symbolName, accessAttr));
-                } else {
-                  Say(symbolName, "Generic spec '%s' not found"_err_en_US);
-                }
-              },
-          },
-          accessId.u);
+      GenericSpecInfo info{accessId.v.value()};
+      auto *symbol{FindInScope(info.symbolName())};
+      if (!symbol && !info.kind().IsName()) {
+        symbol = &MakeSymbol(info.symbolName(), Attrs{}, GenericDetails{});
+      }
+      info.Resolve(&SetAccess(info.symbolName(), accessAttr, symbol));
     }
   }
   return false;
