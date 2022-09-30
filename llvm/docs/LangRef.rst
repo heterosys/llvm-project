@@ -522,6 +522,9 @@ DLL storage class:
     assembler and linker know it is externally referenced and must refrain from
     deleting the symbol.
 
+A symbol with ``internal`` or ``private`` linkage cannot have a DLL storage
+class.
+
 .. _tls_model:
 
 Thread Local Storage Models
@@ -2242,7 +2245,7 @@ example:
     about the range of vscale.
 ``"min-legal-vector-width"="<size>"``
     This attribute indicates the minimum legal vector width required by the
-    calling conversion. It is the maximum width of vector arguments and
+    calling convension. It is the maximum width of vector arguments and
     returnings in the function and functions called by this function. Because
     all the vectors are supposed to be legal type for compatibility.
     Backends are free to ignore the attribute if they don't need to support
