@@ -2336,7 +2336,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []> {
       %r = fir.dispatch "methodA"(%o) : (!fir.class<T>) -> i32
 
       // fir.dispatch with the `pass_arg_pos` attribute.
-      %r = fir.dispatch "methodA"(%o, %o) : (!fir.class<T>, !fir.class<T>) -> i32 {pass_arg_pos = 0 : i32}
+      %r = fir.dispatch "methodA"(%o : !fir.class<T>) (%o : !fir.class<T>) -> i32 {pass_arg_pos = 0 : i32}
     ```
   }];
 
@@ -2347,11 +2347,14 @@ def fir_DispatchOp : fir_Op<"dispatch", []> {
     OptionalAttr<I32Attr>:$pass_arg_pos
   );
 
-  let results = (outs Variadic<AnyType>);
+  let results = (outs Variadic<AnyType>:$results);
 
   let hasVerifier = 1;
 
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = [{
+    $method `(` $object `:` qualified(type($object)) `)`
+    ( `(` $args^ `:` type($args) `)` )? (`->` type($results)^)? attr-dict
+  }];
 
   let extraClassDeclaration = [{
     mlir::FunctionType getFunctionType();
@@ -2651,6 +2654,7 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     TypeAttr:$type,
     OptionalAttr<AnyAttr>:$initVal,
     OptionalAttr<UnitAttr>:$constant,
+    OptionalAttr<UnitAttr>:$target,
     OptionalAttr<StrAttr>:$linkName
   );
 
@@ -2663,19 +2667,20 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     OpBuilder<(ins "llvm::StringRef":$name, "mlir::Type":$type,
       CArg<"llvm::ArrayRef<mlir::NamedAttribute>", "{}">:$attrs)>,
     OpBuilder<(ins "llvm::StringRef":$name, "bool":$isConstant,
-      "mlir::Type":$type,
+      "bool":$isTarget, "mlir::Type":$type,
       CArg<"llvm::ArrayRef<mlir::NamedAttribute>", "{}">:$attrs)>,
     OpBuilder<(ins "llvm::StringRef":$name, "mlir::Type":$type,
       CArg<"mlir::StringAttr", "{}">:$linkage,
       CArg<"llvm::ArrayRef<mlir::NamedAttribute>", "{}">:$attrs)>,
     OpBuilder<(ins "llvm::StringRef":$name, "bool":$isConstant,
+      "bool":$isTarget,
       "mlir::Type":$type, CArg<"mlir::StringAttr", "{}">:$linkage,
       CArg<"llvm::ArrayRef<mlir::NamedAttribute>", "{}">:$attrs)>,
     OpBuilder<(ins "llvm::StringRef":$name, "mlir::Type":$type,
       "mlir::Attribute":$initVal, CArg<"mlir::StringAttr", "{}">:$linkage,
       CArg<"llvm::ArrayRef<mlir::NamedAttribute>", "{}">:$attrs)>,
     OpBuilder<(ins "llvm::StringRef":$name, "bool":$isConstant,
-      "mlir::Type":$type, "mlir::Attribute":$initVal,
+      "bool":$isTarget, "mlir::Type":$type, "mlir::Attribute":$initVal,
       CArg<"mlir::StringAttr", "{}">:$linkage,
       CArg<"llvm::ArrayRef<mlir::NamedAttribute>", "{}">:$attrs)>,
   ];
@@ -2687,6 +2692,9 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     }
     static constexpr llvm::StringRef getLinkageAttrNameStr() {
       return "linkName";
+    }
+    static constexpr llvm::StringRef getTargetAttrNameStr() {
+      return "target";
     }
 
     /// The semantic type of the global
