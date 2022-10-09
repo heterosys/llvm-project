@@ -111,11 +111,7 @@ class ConstraintInfo {
   ConstraintSystem UnsignedCS;
   ConstraintSystem SignedCS;
 
-  const DataLayout &DL;
-
 public:
-  ConstraintInfo(const DataLayout &DL) : DL(DL) {}
-
   DenseMap<Value *, unsigned> &getValue2Index(bool Signed) {
     return Signed ? SignedValue2Index : UnsignedValue2Index;
   }
@@ -146,15 +142,6 @@ public:
   /// \p NewVariables.
   ConstraintTy getConstraint(CmpInst::Predicate Pred, Value *Op0, Value *Op1,
                              SmallVectorImpl<Value *> &NewVariables) const;
-
-  /// Turn a condition \p CmpI into a vector of constraints, using indices from
-  /// the corresponding constraint system. New variables that need to be added
-  /// to the system are collected in \p NewVariables.
-  ConstraintTy getConstraint(CmpInst *Cmp,
-                             SmallVectorImpl<Value *> &NewVariables) {
-    return getConstraint(Cmp->getPredicate(), Cmp->getOperand(0),
-                         Cmp->getOperand(1), NewVariables);
-  }
 
   /// Try to add information from \p A \p Pred \p B to the unsigned/signed
   /// system if \p Pred is signed/unsigned.
@@ -209,6 +196,25 @@ decompose(Value *V, SmallVector<PreconditionTy, 4> &Preconditions,
   if (GEP && GEP->getNumOperands() == 2 && GEP->isInBounds()) {
     Value *Op0, *Op1;
     ConstantInt *CI;
+
+    // Handle the (gep (gep ....), C) case by incrementing the constant
+    // coefficient of the inner GEP, if C is a constant.
+    auto *InnerGEP = dyn_cast<GetElementPtrInst>(GEP->getPointerOperand());
+    if (InnerGEP && InnerGEP->getNumOperands() == 2 &&
+        isa<ConstantInt>(GEP->getOperand(1))) {
+      APInt Offset = cast<ConstantInt>(GEP->getOperand(1))->getValue();
+      auto Result = decompose(InnerGEP, Preconditions, IsSigned);
+      Result[0].Coefficient += Offset.getSExtValue();
+      if (Offset.isNegative()) {
+        // Add pre-condition ensuring the GEP is increasing monotonically and
+        // can be de-composed.
+        Preconditions.emplace_back(
+            CmpInst::ICMP_SGE, InnerGEP->getOperand(1),
+            ConstantInt::get(InnerGEP->getOperand(1)->getType(),
+                             -1 * Offset.getSExtValue()));
+      }
+      return Result;
+    }
 
     // If the index is zero-extended, it is guaranteed to be positive.
     if (match(GEP->getOperand(GEP->getNumOperands() - 1),
@@ -330,14 +336,6 @@ ConstraintInfo::getConstraint(CmpInst::Predicate Pred, Value *Op0, Value *Op1,
   if (Pred != CmpInst::ICMP_ULE && Pred != CmpInst::ICMP_ULT &&
       Pred != CmpInst::ICMP_SLE && Pred != CmpInst::ICMP_SLT)
     return {};
-
-  // If both operands are known to be non-negative, change signed predicates to
-  // unsigned ones. This increases the reasoning effectiveness in combination
-  // with the signed <-> unsigned transfer logic.
-  if (CmpInst::isSigned(Pred) &&
-      isKnownNonNegative(Op0, DL, /*Depth=*/MaxAnalysisRecursionDepth - 1) &&
-      isKnownNonNegative(Op1, DL, /*Depth=*/MaxAnalysisRecursionDepth - 1))
-    Pred = CmpInst::getUnsignedPredicate(Pred);
 
   SmallVector<PreconditionTy, 4> Preconditions;
   bool IsSigned = CmpInst::isSigned(Pred);
@@ -754,7 +752,7 @@ static bool eliminateConstraints(Function &F, DominatorTree &DT) {
   bool Changed = false;
   DT.updateDFSNumbers();
 
-  ConstraintInfo Info(F.getParent()->getDataLayout());
+  ConstraintInfo Info;
   State S(DT);
 
   // First, collect conditions implied by branches and blocks with their
@@ -837,7 +835,22 @@ static bool eliminateConstraints(Function &F, DominatorTree &DT) {
 
         LLVM_DEBUG(dbgs() << "Checking " << *Cmp << "\n");
         SmallVector<Value *> NewVariables;
-        auto R = Info.getConstraint(Cmp, NewVariables);
+        CmpInst::Predicate Pred = Cmp->getPredicate();
+        Value *A = Cmp->getOperand(0);
+        Value *B = Cmp->getOperand(1);
+        const DataLayout &DL = Cmp->getModule()->getDataLayout();
+
+        // If both operands are known to be non-negative, change signed
+        // predicates to unsigned ones. This increases the reasoning
+        // effectiveness in combination with the signed <-> unsigned transfer
+        // logic.
+        if (CmpInst::isSigned(Pred) &&
+            isKnownNonNegative(A, DL,
+                               /*Depth=*/MaxAnalysisRecursionDepth - 1) &&
+            isKnownNonNegative(B, DL, /*Depth=*/MaxAnalysisRecursionDepth - 1))
+          Pred = CmpInst::getUnsignedPredicate(Pred);
+
+        auto R = Info.getConstraint(Pred, A, B, NewVariables);
         if (R.IsEq || R.empty() || !NewVariables.empty() || !R.isValid(Info))
           continue;
 
