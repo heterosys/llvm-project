@@ -48,6 +48,8 @@ def StructTimeSpecPtr : PtrType<StructTimeSpec>;
 def ExecArgvT : NamedType<"__exec_argv_t">;
 def ExecEnvpT : NamedType<"__exec_envp_t">;
 
+def AtForkCallbackT : NamedType<"__atfork_callback_t">;
+
 def POSIX : StandardSpec<"POSIX"> {
   PtrType CharPtr = PtrType<CharType>;
   RestrictedPtrType RestrictedCharPtr = RestrictedPtrType<CharType>;
@@ -400,6 +402,11 @@ def POSIX : StandardSpec<"POSIX"> {
           [ArgSpec<VoidType>]
         >,
         FunctionSpec<
+          "isatty",
+          RetValSpec<IntType>,
+          [ArgSpec<IntType>]
+        >,
+        FunctionSpec<
           "link",
           RetValSpec<IntType>,
           [ArgSpec<ConstCharPtr>, ArgSpec<ConstCharPtr>]
@@ -508,6 +515,11 @@ def POSIX : StandardSpec<"POSIX"> {
           "symlinkat",
           RetValSpec<IntType>,
           [ArgSpec<IntType>, ArgSpec<ConstCharPtr>, ArgSpec<IntType>, ArgSpec<ConstCharPtr>]
+        >,
+        FunctionSpec<
+          "sysconf",
+          RetValSpec<IntType>,
+          [ArgSpec<IntType>]
         >,
         FunctionSpec<
           "__llvm_libc_syscall",
@@ -718,6 +730,7 @@ def POSIX : StandardSpec<"POSIX"> {
     "pthread.h",
     [], // Macros
     [
+        AtForkCallbackT,
         PThreadAttrTType,
         PThreadKeyT,
         PThreadMutexAttrTType,
@@ -730,6 +743,11 @@ def POSIX : StandardSpec<"POSIX"> {
     ], // Types
     [], // Enumerations
     [
+      FunctionSpec<
+          "pthread_atfork",
+          RetValSpec<IntType>,
+          [ArgSpec<AtForkCallbackT>, ArgSpec<AtForkCallbackT>, ArgSpec<AtForkCallbackT>]
+      >,
       FunctionSpec<
           "pthread_attr_init",
           RetValSpec<IntType>,
@@ -1017,6 +1035,16 @@ def POSIX : StandardSpec<"POSIX"> {
     ]
   >;
 
+  HeaderSpec SysIOctl = HeaderSpec<
+    "sys/ioctl.h",
+    [
+      Macro<"TIOCGETD">,
+    ],  // Macros
+    [], // Types
+    [], // Enumerations
+    []  // Functions
+  >;
+
   let Headers = [
     CType,
     Dirent,
@@ -1026,6 +1054,7 @@ def POSIX : StandardSpec<"POSIX"> {
     Signal,
     StdIO,
     StdLib,
+    SysIOctl,
     SysMMan,
     SysResource,
     SysStat,
