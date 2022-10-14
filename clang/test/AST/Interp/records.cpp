@@ -1,5 +1,9 @@
 // RUN: %clang_cc1 -fexperimental-new-constant-interpreter -verify %s
+// RUN: %clang_cc1 -fexperimental-new-constant-interpreter -std=c++14 -verify %s
+// RUN: %clang_cc1 -fexperimental-new-constant-interpreter -triple i686 -verify %s
 // RUN: %clang_cc1 -verify=ref %s
+// RUN: %clang_cc1 -verify=ref -std=c++14 %s
+// RUN: %clang_cc1 -verify=ref -triple i686 %s
 
 // expected-no-diagnostics
 
@@ -48,7 +52,9 @@ static_assert(ints2.a == -20, "");
 static_assert(ints2.b == -30, "");
 static_assert(!ints2.c, "");
 
-#if 0
+#if __cplusplus >= 201703L
+// FIXME: In c++14, this uses a MaterializeTemporaryExpr,
+//   which the new interpreter doesn't support yet.
 constexpr Ints getInts() {
   return {64, 128, true};
 }
@@ -120,7 +126,9 @@ constexpr const C* getPointer() {
 }
 static_assert(getPointer()->a == 100, "");
 
-#if 0
+#if __cplusplus >= 201703L
+// FIXME: In c++14, this uses a MaterializeTemporaryExpr,
+//   which the new interpreter doesn't support yet.
 constexpr C RVOAndParams(const C *c) {
   return C();
 }
@@ -156,3 +164,20 @@ namespace thisPointer {
   static_assert(foo() == 12, ""); // ref-error {{not an integral constant expression}} \
                                   // ref-note {{in call to 'foo()'}}
 };
+
+struct FourBoolPairs {
+  BoolPair v[4] = {
+    {false, false},
+    {false,  true},
+    {true,  false},
+    {true,  true },
+  };
+};
+// Init
+constexpr FourBoolPairs LT;
+// Copy ctor
+constexpr FourBoolPairs LT2 = LT;
+static_assert(LT2.v[0].first == false, "");
+static_assert(LT2.v[0].second == false, "");
+static_assert(LT2.v[2].first == true, "");
+static_assert(LT2.v[2].second == false, "");
