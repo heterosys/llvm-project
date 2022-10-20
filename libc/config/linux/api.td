@@ -210,6 +210,7 @@ def SignalAPI : PublicAPI<"signal.h"> {
     "struct sigaction",
     "union sigval",
     "siginfo_t",
+    "stack_t",
     "pid_t",
   ];
 }
@@ -269,6 +270,10 @@ def UniStdAPI : PublicAPI<"unistd.h"> {
   let Types = ["__exec_argv_t", "__exec_envp_t", "off_t", "pid_t", "size_t", "ssize_t", "uid_t"];
 }
 
+def SysRandomAPI : PublicAPI<"sys/random.h"> {
+  let Types = ["size_t", "ssize_t"];
+}
+
 def SysResourceAPI : PublicAPI<"sys/resource.h"> {
   let Types = ["rlim_t", "struct rlimit"];
 }
@@ -292,4 +297,8 @@ def SysUtsNameAPI : PublicAPI<"sys/utsname.h"> {
 
 def SpawnAPI : PublicAPI<"spawn.h"> {
   let Types = ["mode_t", "pid_t", "posix_spawnattr_t", "posix_spawn_file_actions_t"];
+}
+
+def TermiosAPI : PublicAPI<"termios.h"> {
+  let Types = ["cc_t", "pid_t", "speed_t", "struct termios", "tcflag_t"];
 }

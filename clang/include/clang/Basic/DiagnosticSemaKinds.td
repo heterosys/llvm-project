@@ -5027,6 +5027,8 @@ def err_template_arg_not_pointer_to_member_form : Error<
 def err_template_arg_member_ptr_base_derived_not_supported : Error<
   "sorry, non-type template argument of pointer-to-member type %1 that refers "
   "to member %q0 of a different class is not supported yet">;
+def err_template_arg_invalid : Error<
+  "non-type template argument '%0' is invalid">;
 def ext_template_arg_extra_parens : ExtWarn<
   "address non-type template argument cannot be surrounded by parentheses">;
 def warn_cxx98_compat_template_arg_extra_parens : Warning<
@@ -9958,10 +9960,10 @@ def err_argument_not_shifted_byte_or_xxff : Error<
   "argument should be an 8-bit value shifted by a multiple of 8 bits, or in the form 0x??FF">;
 def err_argument_not_contiguous_bit_field : Error<
   "argument %0 value should represent a contiguous bit field">;
-def err_rotation_argument_to_cadd
-    : Error<"argument should be the value 90 or 270">;
-def err_rotation_argument_to_cmla
-    : Error<"argument should be the value 0, 90, 180 or 270">;
+def err_rotation_argument_to_cadd : Error<
+  "argument should be the value 90 or 270">;
+def err_rotation_argument_to_cmla : Error<
+  "argument should be the value 0, 90, 180 or 270">;
 def warn_neon_vector_initializer_non_portable : Warning<
   "vector initializers are not compatible with NEON intrinsics in big endian "
   "mode">, InGroup<DiagGroup<"nonportable-vector-initialization">>;
@@ -11691,7 +11693,10 @@ def err_std_source_location_impl_malformed : Error<
 
 // HLSL Diagnostics
 def err_hlsl_attr_unsupported_in_stage : Error<"attribute %0 is unsupported in %select{Pixel|Vertex|Geometry|Hull|Domain|Compute|Library|RayGeneration|Intersection|AnyHit|ClosestHit|Miss|Callable|Mesh|Amplification|Invalid}1 shaders, requires %2">;
-
+def err_hlsl_attr_invalid_type : Error<
+   "attribute %0 only applies to a field or parameter of type '%1'">;
+def err_hlsl_attr_invalid_ast_node : Error<
+   "attribute %0 only applies to %1">;
 def err_hlsl_numthreads_argument_oor : Error<"argument '%select{X|Y|Z}0' to numthreads attribute cannot exceed %1">;
 def err_hlsl_numthreads_invalid : Error<"total number of threads cannot exceed %0">;
 def err_hlsl_missing_numthreads : Error<"missing numthreads attribute for %0 shader entry">;

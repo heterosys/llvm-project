@@ -617,13 +617,18 @@ public:
   /// to the cloned loop. The cloned loop is executed when ifCond is evaluated
   /// to false.
   ///
-  /// \param Loop    The loop to simd-ize.
-  /// \param IfCond  The value which corresponds to the if clause condition.
-  /// \param Order   The enum to map order clause
-  /// \param Simdlen The Simdlen length to apply to the simd loop.
-  /// \param Safelen The Safelen length to apply to the simd loop.
-  void applySimd(CanonicalLoopInfo *Loop, Value *IfCond, omp::OrderKind Order,
-                 ConstantInt *Simdlen, ConstantInt *Safelen);
+  /// \param Loop        The loop to simd-ize.
+  /// \param AlignedVars The map which containts pairs of the pointer
+  ///                    and its corresponding alignment.
+  /// \param IfCond      The value which corresponds to the if clause
+  ///                    condition.
+  /// \param Order       The enum to map order clause.
+  /// \param Simdlen     The Simdlen length to apply to the simd loop.
+  /// \param Safelen     The Safelen length to apply to the simd loop.
+  void applySimd(CanonicalLoopInfo *Loop,
+                 MapVector<Value *, Value *> AlignedVars, Value *IfCond,
+                 omp::OrderKind Order, ConstantInt *Simdlen,
+                 ConstantInt *Safelen);
 
   /// Generator for '#omp flush'
   ///
@@ -639,6 +644,17 @@ public:
   ///
   /// \param Loc The location where the taskyield directive was encountered.
   void createTaskyield(const LocationDescription &Loc);
+
+  /// A struct to pack the relevant information for an OpenMP depend clause.
+  struct DependData {
+    omp::RTLDependenceKindTy DepKind = omp::RTLDependenceKindTy::DepUnknown;
+    Type *DepValueType;
+    Value *DepVal;
+    explicit DependData() = default;
+    DependData(omp::RTLDependenceKindTy DepKind, Type *DepValueType,
+               Value *DepVal)
+        : DepKind(DepKind), DepValueType(DepValueType), DepVal(DepVal) {}
+  };
 
   /// Generator for `#omp task`
   ///
@@ -657,7 +673,8 @@ public:
   InsertPointTy createTask(const LocationDescription &Loc,
                            InsertPointTy AllocaIP, BodyGenCallbackTy BodyGenCB,
                            bool Tied = true, Value *Final = nullptr,
-                           Value *IfCondition = nullptr);
+                           Value *IfCondition = nullptr,
+                           ArrayRef<DependData *> Dependencies = {});
 
   /// Generator for the taskgroup construct
   ///
