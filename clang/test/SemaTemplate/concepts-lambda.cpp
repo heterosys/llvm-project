@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++20 -verify %s
+// RUN: %clang_cc1 -std=c++20 -verify %s -triple powerpc64-ibm-aix
 // expected-no-diagnostics
 
 namespace GH57945 {
