@@ -1151,11 +1151,11 @@ def fapple_kext : Flag<["-"], "fapple-kext">, Group<f_Group>, Flags<[CC1Option]>
   HelpText<"Use Apple's kernel extensions ABI">,
   MarshallingInfoFlag<LangOpts<"AppleKext">>;
 def fstrict_flex_arrays_EQ : Joined<["-"], "fstrict-flex-arrays=">, Group<f_Group>,
-  MetaVarName<"<n>">, Values<"0,1,2">,
+  MetaVarName<"<n>">, Values<"0,1,2,3">,
   LangOpts<"StrictFlexArraysLevel">,
   Flags<[CC1Option]>,
   NormalizedValuesScope<"LangOptions::StrictFlexArraysLevelKind">,
-  NormalizedValues<["Default", "OneZeroOrIncomplete", "ZeroOrIncomplete"]>,
+  NormalizedValues<["Default", "OneZeroOrIncomplete", "ZeroOrIncomplete", "IncompleteOnly"]>,
   HelpText<"Enable optimizations based on the strict definition of flexible arrays">,
   MarshallingInfoEnum<LangOpts<"StrictFlexArraysLevel">, "Default">;
 defm apple_pragma_pack : BoolFOption<"apple-pragma-pack",
@@ -4588,6 +4588,10 @@ def mavx512vpopcntdq : Flag<["-"], "mavx512vpopcntdq">, Group<m_x86_Features_Gro
 def mno_avx512vpopcntdq : Flag<["-"], "mno-avx512vpopcntdq">, Group<m_x86_Features_Group>;
 def mavx512vp2intersect : Flag<["-"], "mavx512vp2intersect">, Group<m_x86_Features_Group>;
 def mno_avx512vp2intersect : Flag<["-"], "mno-avx512vp2intersect">, Group<m_x86_Features_Group>;
+def mavxifma : Flag<["-"], "mavxifma">, Group<m_x86_Features_Group>;
+def mno_avxifma : Flag<["-"], "mno-avxifma">, Group<m_x86_Features_Group>;
+def mavxvnniint8 : Flag<["-"], "mavxvnniint8">, Group<m_x86_Features_Group>;
+def mno_avxvnniint8 : Flag<["-"], "mno-avxvnniint8">, Group<m_x86_Features_Group>;
 def mavxvnni : Flag<["-"], "mavxvnni">, Group<m_x86_Features_Group>;
 def mno_avxvnni : Flag<["-"], "mno-avxvnni">, Group<m_x86_Features_Group>;
 def madx : Flag<["-"], "madx">, Group<m_x86_Features_Group>;
