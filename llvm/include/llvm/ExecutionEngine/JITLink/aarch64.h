@@ -25,7 +25,6 @@ enum EdgeKind_aarch64 : Edge::Kind {
   Branch26 = Edge::FirstRelocation,
   Pointer32,
   Pointer64,
-  Pointer64Anon,
   Page21,
   PageOffset12,
   MoveWide16,
@@ -36,7 +35,6 @@ enum EdgeKind_aarch64 : Edge::Kind {
   TLSDescPage21,
   TLSDescPageOffset12,
   Delta32ToGOT,
-  PairedAddend,
   LDRLiteral19,
   Delta32,
   Delta64,
@@ -131,8 +129,7 @@ inline Error applyFixup(LinkGraph &G, Block &B, const Edge &E) {
     *(ulittle32_t *)FixupPtr = Value;
     break;
   }
-  case Pointer64:
-  case Pointer64Anon: {
+  case Pointer64: {
     uint64_t Value = E.getTarget().getAddress().getValue() + E.getAddend();
     *(ulittle64_t *)FixupPtr = Value;
     break;
