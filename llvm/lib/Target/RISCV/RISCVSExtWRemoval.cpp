@@ -250,6 +250,7 @@ static bool isSignExtendingOpW(MachineInstr &MI, MachineRegisterInfo &MRI,
   case RISCV::CLZW:
   case RISCV::CTZW:
   case RISCV::CPOPW:
+  case RISCV::PACKW:
   case RISCV::FCVT_W_H:
   case RISCV::FCVT_WU_H:
   case RISCV::FCVT_W_S:
@@ -276,6 +277,7 @@ static bool isSignExtendingOpW(MachineInstr &MI, MachineRegisterInfo &MRI,
   case RISCV::CLZ:
   case RISCV::CPOP:
   case RISCV::CTZ:
+  case RISCV::PACKH:
     return true;
   // shifting right sufficiently makes the value 32-bit sign-extended
   case RISCV::SRAI:
@@ -343,7 +345,7 @@ static bool isSignExtendedW(MachineInstr &OrigMI, MachineRegisterInfo &MRI,
     if (isSignExtendingOpW(*MI, MRI, FixableDef))
       continue;
 
-    // Is this an instruction that propagates sign extend.
+    // Is this an instruction that propagates sign extend?
     switch (MI->getOpcode()) {
     default:
       // Unknown opcode, give up.
@@ -357,8 +359,8 @@ static bool isSignExtendedW(MachineInstr &OrigMI, MachineRegisterInfo &MRI,
       // it is sign extended.
       if (MI->getParent() == &MF->front()) {
         Register VReg = MI->getOperand(0).getReg();
-        if (MF->getRegInfo().isLiveIn(VReg))
-          return RVFI->isSExt32Register(VReg);
+        if (MF->getRegInfo().isLiveIn(VReg) && RVFI->isSExt32Register(VReg))
+          continue;
       }
 
       // TODO: Handle returns from calls?
