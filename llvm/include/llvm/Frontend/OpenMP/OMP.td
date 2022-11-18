@@ -230,9 +230,18 @@ def OMPC_Priority : Clause<"priority"> {
   let clangClass = "OMPPriorityClause";
   let flangClass = "ScalarIntExpr";
 }
+
+def OMP_GRAINSIZE_Strict : ClauseVal<"strict", 1, 1> {}
+def OMP_GRAINSIZE_Unknown : ClauseVal<"unkonwn", 2, 0> { let isDefault = 1; }
+
 def OMPC_GrainSize : Clause<"grainsize"> {
   let clangClass = "OMPGrainsizeClause";
   let flangClass = "ScalarIntExpr";
+  let enumClauseValue = "GrainsizeType";
+  let allowedClauseValues = [
+    OMP_GRAINSIZE_Strict,
+    OMP_GRAINSIZE_Unknown
+  ];
 }
 def OMPC_NoGroup : Clause<"nogroup"> {
   let clangClass = "OMPNogroupClause";
@@ -303,6 +312,9 @@ def OMPC_AtomicDefaultMemOrder : Clause<"atomic_default_mem_order"> {
 }
 def OMPC_At : Clause<"at"> {
   let clangClass = "OMPAtClause";
+}
+def OMPC_Severity : Clause<"severity"> {
+  let clangClass = "OMPSeverityClause";
 }
 def OMPC_Allocate : Clause<"allocate"> {
   let clangClass = "OMPAllocateClause";
@@ -532,7 +544,8 @@ def OMP_TaskYield : Directive<"taskyield"> {}
 def OMP_Barrier : Directive<"barrier"> {}
 def OMP_Error : Directive<"error"> {
   let allowedClauses = [
-    VersionedClause<OMPC_At>
+    VersionedClause<OMPC_At, 51>,
+    VersionedClause<OMPC_Severity, 51>
   ];
 }
 def OMP_TaskWait : Directive<"taskwait"> {
