@@ -71,13 +71,13 @@ void MCWinCOFFStreamer::initSections(bool NoExecStack,
   // This emulates the same behavior of GNU as. This makes it easier
   // to compare the output as the major sections are in the same order.
   switchSection(getContext().getObjectFileInfo()->getTextSection());
-  emitCodeAlignment(4, &STI);
+  emitCodeAlignment(Align(4), &STI);
 
   switchSection(getContext().getObjectFileInfo()->getDataSection());
-  emitCodeAlignment(4, &STI);
+  emitCodeAlignment(Align(4), &STI);
 
   switchSection(getContext().getObjectFileInfo()->getBSSSection());
-  emitCodeAlignment(4, &STI);
+  emitCodeAlignment(Align(4), &STI);
 
   switchSection(getContext().getObjectFileInfo()->getTextSection());
 }
@@ -300,7 +300,7 @@ void MCWinCOFFStreamer::emitLocalCommonSymbol(MCSymbol *S, uint64_t Size,
   MCSection *Section = getContext().getObjectFileInfo()->getBSSSection();
   pushSection();
   switchSection(Section);
-  emitValueToAlignment(ByteAlignment, 0, 1, 0);
+  emitValueToAlignment(Align(ByteAlignment), 0, 1, 0);
   emitLabel(Symbol);
   Symbol->setExternal(false);
   emitZeros(Size);
