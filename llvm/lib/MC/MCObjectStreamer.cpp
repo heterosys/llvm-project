@@ -480,7 +480,7 @@ static const char *const BundlingNotImplementedMsg =
   "Aligned bundling is not implemented for this object format";
 #endif
 
-void MCObjectStreamer::emitBundleAlignMode(unsigned AlignPow2) {
+void MCObjectStreamer::emitBundleAlignMode(Align Alignment) {
   llvm_unreachable(BundlingNotImplementedMsg);
 }
 
@@ -652,7 +652,7 @@ void MCObjectStreamer::emitValueToAlignment(unsigned ByteAlignment,
 
   // Update the maximum alignment on the current section if necessary.
   MCSection *CurSec = getCurrentSectionOnly();
-  if (ByteAlignment > CurSec->getAlignment())
+  if (CurSec->getAlign() < ByteAlignment)
     CurSec->setAlignment(Align(ByteAlignment));
 }
 
