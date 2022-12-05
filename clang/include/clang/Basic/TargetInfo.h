@@ -37,6 +37,7 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/VersionTuple.h"
 #include <cassert>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -1512,7 +1513,7 @@ public:
   /// Return an AST address space which can be used opportunistically
   /// for constant global memory. It must be possible to convert pointers into
   /// this address space to LangAS::Default. If no such address space exists,
-  /// this may return None, and such optimizations will be disabled.
+  /// this may return std::nullopt, and such optimizations will be disabled.
   virtual llvm::Optional<LangAS> getConstantAddressSpace() const {
     return LangAS::Default;
   }
@@ -1652,9 +1653,10 @@ public:
   /// space \p AddressSpace to be converted in order to be used, then return the
   /// corresponding target specific DWARF address space.
   ///
-  /// \returns Otherwise return None and no conversion will be emitted in the
-  /// DWARF.
-  virtual Optional<unsigned> getDWARFAddressSpace(unsigned AddressSpace) const {
+  /// \returns Otherwise return std::nullopt and no conversion will be emitted
+  /// in the DWARF.
+  virtual std::optional<unsigned> getDWARFAddressSpace(unsigned AddressSpace)
+      const {
     return std::nullopt;
   }
 
