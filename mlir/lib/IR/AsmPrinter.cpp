@@ -618,11 +618,9 @@ private:
   /// Print the given operation in the generic form.
   void printGenericOp(Operation *op, bool printOpName = true) override {
     // Consider nested operations for aliases.
-    if (op->getNumRegions() != 0) {
-      for (Region &region : op->getRegions())
-        printRegion(region, /*printEntryBlockArgs=*/true,
-                    /*printBlockTerminators=*/true);
-    }
+    for (Region &region : op->getRegions())
+      printRegion(region, /*printEntryBlockArgs=*/true,
+                  /*printBlockTerminators=*/true);
 
     // Visit all the types used in the operation.
     for (Type type : op->getOperandTypes())
@@ -789,14 +787,14 @@ private:
   /// Print the given attribute/type, visiting any nested aliases that would be
   /// generated as part of printing.
   void printAndVisitNestedAliasesImpl(Attribute attr, bool elideType) {
-    if (!isa<BuiltinDialect>(attr.getDialect()))
-      return attr.getDialect().printAttribute(attr, *this);
+    if (!isa<BuiltinDialect>(attr.getDialect())) {
+      attr.getDialect().printAttribute(attr, *this);
 
-    // Process the builtin attributes.
-    if (attr.isa<AffineMapAttr, DenseArrayAttr, FloatAttr, IntegerAttr,
-                 IntegerSetAttr, UnitAttr>())
+      // Process the builtin attributes.
+    } else if (attr.isa<AffineMapAttr, DenseArrayAttr, FloatAttr, IntegerAttr,
+                        IntegerSetAttr, UnitAttr>()) {
       return;
-    if (auto dictAttr = dyn_cast<DictionaryAttr>(attr)) {
+    } else if (auto dictAttr = dyn_cast<DictionaryAttr>(attr)) {
       for (const NamedAttribute &nestedAttr : dictAttr.getValue()) {
         printAttribute(nestedAttr.getName());
         printAttribute(nestedAttr.getValue());
