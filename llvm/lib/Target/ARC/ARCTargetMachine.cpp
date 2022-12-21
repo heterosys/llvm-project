@@ -11,6 +11,7 @@
 
 #include "ARCTargetMachine.h"
 #include "ARC.h"
+#include "ARCMachineFunctionInfo.h"
 #include "ARCTargetTransformInfo.h"
 #include "TargetInfo/ARCTargetInfo.h"
 #include "llvm/CodeGen/Passes.h"
@@ -77,6 +78,12 @@ void ARCPassConfig::addPreEmitPass() { addPass(createARCBranchFinalizePass()); }
 void ARCPassConfig::addPreRegAlloc() {
     addPass(createARCExpandPseudosPass());
     addPass(createARCOptAddrMode());
+}
+
+MachineFunctionInfo *ARCTargetMachine::createMachineFunctionInfo(
+    BumpPtrAllocator &Allocator, const Function &F,
+    const TargetSubtargetInfo *STI) const {
+    return ARCFunctionInfo::create<ARCFunctionInfo>(Allocator, F, STI);
 }
 
 // Force static initialization.
