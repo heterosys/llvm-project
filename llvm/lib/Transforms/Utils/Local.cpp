@@ -619,10 +619,8 @@ void llvm::RecursivelyDeleteTriviallyDeadInstructions(
 bool llvm::replaceDbgUsesWithUndef(Instruction *I) {
   SmallVector<DbgVariableIntrinsic *, 1> DbgUsers;
   findDbgUsers(DbgUsers, I);
-  for (auto *DII : DbgUsers) {
-    Value *Undef = UndefValue::get(I->getType());
-    DII->replaceVariableLocationOp(I, Undef);
-  }
+  for (auto *DII : DbgUsers)
+    DII->setKillLocation();
   return !DbgUsers.empty();
 }
 
@@ -1910,12 +1908,11 @@ void llvm::salvageDebugInfoForDbgValues(
       DII->addVariableLocationOps(AdditionalValues, SalvagedExpr);
     } else {
       // Do not salvage using DIArgList for dbg.addr/dbg.declare, as it is
-      // currently only valid for stack value expressions. Do not salvage
-      // using DIArgList for dbg.assign yet. FIXME: support this.
+      // not currently supported in those instructions. Do not salvage using
+      // DIArgList for dbg.assign yet. FIXME: support this.
       // Also do not salvage if the resulting DIArgList would contain an
       // unreasonably large number of values.
-      Value *Undef = UndefValue::get(I.getOperand(0)->getType());
-      DII->replaceVariableLocationOp(I.getOperand(0), Undef);
+      DII->setKillLocation();
     }
     LLVM_DEBUG(dbgs() << "SALVAGE: " << *DII << '\n');
     Salvaged = true;
@@ -1924,10 +1921,8 @@ void llvm::salvageDebugInfoForDbgValues(
   if (Salvaged)
     return;
 
-  for (auto *DII : DbgUsers) {
-    Value *Undef = UndefValue::get(I.getType());
-    DII->replaceVariableLocationOp(&I, Undef);
-  }
+  for (auto *DII : DbgUsers)
+    DII->setKillLocation();
 }
 
 Value *getSalvageOpsForGEP(GetElementPtrInst *GEP, const DataLayout &DL,

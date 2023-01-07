@@ -69,8 +69,8 @@ static LogicalResult convertIntrinsicImpl(OpBuilder &odsBuilder,
 /// dialect attributes.
 static ArrayRef<unsigned> getSupportedMetadataImpl() {
   static const SmallVector<unsigned> convertibleMetadata = {
-      llvm::LLVMContext::MD_prof // profiling metadata
-  };
+      llvm::LLVMContext::MD_prof, // profiling metadata
+      llvm::LLVMContext::MD_tbaa};
   return convertibleMetadata;
 }
 
@@ -84,12 +84,29 @@ static LogicalResult setProfilingAttrs(OpBuilder &builder, llvm::MDNode *node,
   if (!node->getNumOperands())
     return success();
 
-  // Return failure for non-"branch_weights" metadata.
   auto *name = dyn_cast<llvm::MDString>(node->getOperand(0));
-  if (!name || !name->getString().equals("branch_weights"))
+  if (!name)
     return failure();
 
-  // Copy the branch weights to an array.
+  // Handle function entry count metadata.
+  if (name->getString().equals("function_entry_count")) {
+    // TODO support function entry count metadata with GUID fields.
+    if (node->getNumOperands() != 2)
+      return failure();
+
+    llvm::ConstantInt *entryCount =
+        llvm::mdconst::extract<llvm::ConstantInt>(node->getOperand(1));
+    if (auto funcOp = dyn_cast<LLVMFuncOp>(op)) {
+      funcOp.setFunctionEntryCount(entryCount->getZExtValue());
+      return success();
+    }
+    return failure();
+  }
+
+  if (!name->getString().equals("branch_weights"))
+    return failure();
+
+  // Handle branch weights metadata.
   SmallVector<int32_t> branchWeights;
   branchWeights.reserve(node->getNumOperands() - 1);
   for (unsigned i = 1, e = node->getNumOperands(); i != e; ++i) {
@@ -108,6 +125,20 @@ static LogicalResult setProfilingAttrs(OpBuilder &builder, llvm::MDNode *node,
     return success();
   }
   return failure();
+}
+
+/// Attaches the given TBAA metadata `node` to the imported operation.
+/// Returns success, if the metadata has been converted and the attachment
+/// succeeds, failure - otherwise.
+static LogicalResult setTBAAAttrs(const llvm::MDNode *node, Operation *op,
+                                  LLVM::ModuleImport &moduleImport) {
+  SymbolRefAttr tbaaTagSym = moduleImport.lookupTBAAAttr(node);
+  if (!tbaaTagSym)
+    return failure();
+
+  op->setAttr(LLVMDialect::getTBAAAttrName(),
+              ArrayAttr::get(op->getContext(), tbaaTagSym));
+  return success();
 }
 
 namespace {
@@ -134,6 +165,8 @@ public:
     // Call metadata specific handlers.
     if (kind == llvm::LLVMContext::MD_prof)
       return setProfilingAttrs(builder, node, op, moduleImport);
+    if (kind == llvm::LLVMContext::MD_tbaa)
+      return setTBAAAttrs(node, op, moduleImport);
 
     // A handler for a supported metadata kind is missing.
     llvm_unreachable("unknown metadata type");
