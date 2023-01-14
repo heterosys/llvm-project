@@ -37,6 +37,7 @@
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/raw_ostream.h"
 #include <memory>
+#include <optional>
 
 #define DEBUG_TYPE "mlircontext"
 
@@ -784,7 +785,7 @@ OperationName::UnregisteredOpModel::verifyRegionInvariants(Operation *) {
 // RegisteredOperationName
 //===----------------------------------------------------------------------===//
 
-Optional<RegisteredOperationName>
+std::optional<RegisteredOperationName>
 RegisteredOperationName::lookup(StringRef name, MLIRContext *ctx) {
   auto &impl = ctx->getImpl();
   auto it = impl.registeredOperations.find(name);

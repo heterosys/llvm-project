@@ -19,6 +19,7 @@
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Region.h"
 #include "llvm/ADT/Twine.h"
+#include <optional>
 
 namespace mlir {
 /// Operation is the basic unit of execution within MLIR.
@@ -94,7 +95,7 @@ public:
 
   /// If this operation has a registered operation description, return it.
   /// Otherwise return std::nullopt.
-  Optional<RegisteredOperationName> getRegisteredInfo() {
+  std::optional<RegisteredOperationName> getRegisteredInfo() {
     return getName().getRegisteredInfo();
   }
 
