@@ -19,6 +19,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/AArch64TargetParser.h"
 #include "llvm/Support/ARMTargetParserCommon.h"
+#include <optional>
 
 using namespace clang;
 using namespace clang::targets;
@@ -580,7 +581,7 @@ ArrayRef<Builtin::Info> AArch64TargetInfo::getTargetBuiltins() const {
                                          Builtin::FirstTSBuiltin);
 }
 
-Optional<std::pair<unsigned, unsigned>>
+std::optional<std::pair<unsigned, unsigned>>
 AArch64TargetInfo::getVScaleRange(const LangOptions &LangOpts) const {
   if (LangOpts.VScaleMin || LangOpts.VScaleMax)
     return std::pair<unsigned, unsigned>(
