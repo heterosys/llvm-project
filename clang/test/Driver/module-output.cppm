@@ -2,6 +2,7 @@
 // in Windows and Linux. So we disable the test on Windows
 // here.
 // REQUIRES: !system-windows
+// REQUIRES: x86-registered-target
 //
 // RUN: rm -rf %t
 // RUN: mkdir %t
@@ -22,6 +23,14 @@
 // RUN: %clang %t/Hello.cppm -fmodule-output -arch i386 -arch x86_64 -### -target \
 // RUN:   x86_64-apple-darwin 2>&1 | FileCheck %t/Hello.cppm -check-prefix=MULTIPLE-ARCH
 
+// Tests that the .pcm file will be generated in the same path with the specified one
+// in the comamnd line.
+// RUN: %clang -std=c++20 %t/Hello.cppm -fmodule-output=%t/pcm/Hello.pcm -o %t/Hello.o \
+// RUN:   -c -### 2>&1 | FileCheck %t/Hello.cppm --check-prefix=CHECK-SPECIFIED
+//
+// RUN: %clang -std=c++20 %t/Hello.cppm -fmodule-output=%t/Hello.pcm -fmodule-output -c -fsyntax-only \
+// RUN:   -### 2>&1 | FileCheck %t/Hello.cppm --check-prefix=CHECK-NOT-USED
+
 //--- Hello.cppm
 export module Hello;
 
@@ -29,6 +38,14 @@ export module Hello;
 // CHECK: "-emit-obj" {{.*}}"-main-file-name" "Hello.cppm" {{.*}}"-o" "{{.*}}/output/Hello.o" "-x" "pcm" "{{.*}}/output/Hello.pcm"
 
 // MULTIPLE-ARCH: option '-fmodule-output' can't be used with multiple arch options
+
+// CHECK-SPECIFIED: "-emit-module-interface" {{.*}}"-main-file-name" "Hello.cppm" {{.*}}"-o" "{{.*}}/pcm/Hello.pcm" "-x" "c++" "{{.*}}/Hello.cppm"
+// CHECK-SPECIFIED: "-emit-obj" {{.*}}"-main-file-name" "Hello.cppm" {{.*}}"-o" "{{.*}}/Hello.o" "-x" "pcm" "{{.*}}/pcm/Hello.pcm"
+
+// CHECK-NOT-USED-NOT: warning: argument unused during compilation: '-fmodule-output'
+// CHECK-NOT-USED-NOT: warning: argument unused during compilation: '-fmodule-output=Hello.pcm'
+// CHECK-NOT-USED-NOT: "-fmodule-output"
+// CHECK-NOT-USED-NOT: "-fmodule-output="
 
 //--- AnotherModule.cppm
 export module AnotherModule;
