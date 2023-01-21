@@ -20,6 +20,18 @@
 #include <limits>
 #include <type_traits>
 
+#ifdef _MSC_VER
+// Declare these intrinsics manually rather including intrin.h. It's very
+// expensive, and bit.h is popular via MathExtras.h.
+// #include <intrin.h>
+extern "C" {
+unsigned char _BitScanForward(unsigned long *_Index, unsigned long _Mask);
+unsigned char _BitScanForward64(unsigned long *_Index, unsigned __int64 _Mask);
+unsigned char _BitScanReverse(unsigned long *_Index, unsigned long _Mask);
+unsigned char _BitScanReverse64(unsigned long *_Index, unsigned __int64 _Mask);
+}
+#endif
+
 namespace llvm {
 
 // This implementation of bit_cast is different from the C++20 one in two ways:
@@ -41,18 +53,6 @@ template <typename T, typename = std::enable_if_t<std::is_unsigned_v<T>>>
 constexpr inline bool has_single_bit(T Value) noexcept {
   return (Value != 0) && ((Value & (Value - 1)) == 0);
 }
-
-#ifdef _MSC_VER
-// Declare these intrinsics manually rather including intrin.h. It's very
-// expensive, and bit.h is popular via MathExtras.h.
-// #include <intrin.h>
-extern "C" {
-unsigned char _BitScanForward(unsigned long *_Index, unsigned long _Mask);
-unsigned char _BitScanForward64(unsigned long *_Index, unsigned __int64 _Mask);
-unsigned char _BitScanReverse(unsigned long *_Index, unsigned long _Mask);
-unsigned char _BitScanReverse64(unsigned long *_Index, unsigned __int64 _Mask);
-}
-#endif
 
 namespace detail {
 template <typename T, std::size_t SizeOfT> struct TrailingZerosCounter {
@@ -215,6 +215,43 @@ template <typename T> int countr_one(T Value) {
   static_assert(std::is_unsigned_v<T>,
                 "Only unsigned integral types are allowed.");
   return llvm::countr_zero<T>(~Value);
+}
+
+/// Returns the number of bits needed to represent Value if Value is nonzero.
+/// Returns 0 otherwise.
+///
+/// Ex. bit_width(5) == 3.
+template <typename T> int bit_width(T Value) {
+  static_assert(std::is_unsigned_v<T>,
+                "Only unsigned integral types are allowed.");
+  return std::numeric_limits<T>::digits - llvm::countl_zero(Value);
+}
+
+/// Returns the largest integral power of two no greater than Value if Value is
+/// nonzero.  Returns 0 otherwise.
+///
+/// Ex. bit_floor(5) == 4.
+template <typename T> T bit_floor(T Value) {
+  static_assert(std::is_unsigned_v<T>,
+                "Only unsigned integral types are allowed.");
+  if (!Value)
+    return 0;
+  return T(1) << (llvm::bit_width(Value) - 1);
+}
+
+/// Returns the smallest integral power of two no smaller than Value if Value is
+/// nonzero.  Returns 0 otherwise.
+///
+/// Ex. bit_ceil(5) == 8.
+///
+/// The return value is undefined if the input is larger than the largest power
+/// of two representable in T.
+template <typename T> T bit_ceil(T Value) {
+  static_assert(std::is_unsigned_v<T>,
+                "Only unsigned integral types are allowed.");
+  if (Value < 2)
+    return 1;
+  return T(1) << llvm::bit_width<T>(Value - 1u);
 }
 
 namespace detail {
