@@ -164,6 +164,12 @@ def Call : Opcode {
   let ChangesPC = 1;
 }
 
+def CallBI : Opcode {
+  let Args = [ArgFunction];
+  let Types = [];
+  let ChangesPC = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // Frame management
 //===----------------------------------------------------------------------===//
@@ -393,10 +399,19 @@ def AddOffset : AluOpcode;
 // [Pointer, Integral] -> [Pointer]
 def SubOffset : AluOpcode;
 
-// Pointer, Pointer] - [Integral]
+// [Pointer, Pointer] -> [Integral]
 def SubPtr : Opcode {
   let Types = [IntegerTypeClass];
   let HasGroup = 1;
+}
+
+// [Pointer] -> [Pointer]
+def IncPtr : Opcode {
+  let HasGroup = 0;
+}
+// [Pointer] -> [Pointer]
+def DecPtr : Opcode {
+  let HasGroup = 0;
 }
 
 //===----------------------------------------------------------------------===//

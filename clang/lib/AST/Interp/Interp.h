@@ -140,6 +140,10 @@ bool CheckDivRem(InterpState &S, CodePtr OpPC, const T &LHS, const T &RHS) {
 /// Interpreter entry point.
 bool Interpret(InterpState &S, APValue &Result);
 
+bool InterpretBuiltin(InterpState &S, CodePtr PC, unsigned BuiltinID);
+
+enum class ArithOp { Add, Sub };
+
 //===----------------------------------------------------------------------===//
 // Add, Sub, Mul
 //===----------------------------------------------------------------------===//
@@ -1112,6 +1116,34 @@ bool SubOffset(InterpState &S, CodePtr OpPC) {
   return OffsetHelper<T, false>(S, OpPC);
 }
 
+template <ArithOp Op>
+static inline bool IncDecPtrHelper(InterpState &S, CodePtr OpPC) {
+  using OneT = Integral<8, false>;
+  const Pointer &Ptr = S.Stk.pop<Pointer>();
+
+  // Get the current value on the stack.
+  S.Stk.push<Pointer>(Ptr.deref<Pointer>());
+
+  // Now the current Ptr again and a constant 1.
+  // FIXME: We shouldn't have to push these two on the stack.
+  S.Stk.push<Pointer>(Ptr.deref<Pointer>());
+  S.Stk.push<OneT>(OneT::from(1));
+  if (!OffsetHelper<OneT, Op == ArithOp::Add>(S, OpPC))
+    return false;
+
+  // Store the new value.
+  Ptr.deref<Pointer>() = S.Stk.pop<Pointer>();
+  return true;
+}
+
+static inline bool IncPtr(InterpState &S, CodePtr OpPC) {
+  return IncDecPtrHelper<ArithOp::Add>(S, OpPC);
+}
+
+static inline bool DecPtr(InterpState &S, CodePtr OpPC) {
+  return IncDecPtrHelper<ArithOp::Sub>(S, OpPC);
+}
+
 /// 1) Pops a Pointer from the stack.
 /// 2) Pops another Pointer from the stack.
 /// 3) Pushes the different of the indices of the two pointers on the stack.
@@ -1286,6 +1318,20 @@ inline bool Call(InterpState &S, CodePtr &PC, const Function *Func) {
 
   // Interpreting the function failed somehow. Reset to
   // previous state.
+  S.Current = FrameBefore;
+  return false;
+}
+
+inline bool CallBI(InterpState &S, CodePtr &PC, const Function *Func) {
+  auto NewFrame = std::make_unique<InterpFrame>(S, Func, PC);
+
+  InterpFrame *FrameBefore = S.Current;
+  S.Current = NewFrame.get();
+
+  if (InterpretBuiltin(S, PC, Func->getBuiltinID())) {
+    NewFrame.release();
+    return true;
+  }
   S.Current = FrameBefore;
   return false;
 }

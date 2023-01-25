@@ -279,10 +279,15 @@ bool ByteCodeExprGen<Emitter>::VisitPointerArithBinOp(const BinaryOperator *E) {
 
 template <class Emitter>
 bool ByteCodeExprGen<Emitter>::VisitImplicitValueInitExpr(const ImplicitValueInitExpr *E) {
-  if (std::optional<PrimType> T = classify(E))
-    return this->emitZero(*T, E);
+  std::optional<PrimType> T = classify(E);
 
-  return false;
+  if (!T)
+    return false;
+
+  if (E->getType()->isPointerType())
+    return this->emitNullPtr(E);
+
+  return this->emitZero(*T, E);
 }
 
 template <class Emitter>
@@ -498,10 +503,13 @@ bool ByteCodeExprGen<Emitter>::VisitCompoundAssignOperator(
     const CompoundAssignOperator *E) {
   const Expr *LHS = E->getLHS();
   const Expr *RHS = E->getRHS();
-  std::optional<PrimType> LT = classify(E->getLHS()->getType());
-  std::optional<PrimType> RT = classify(E->getRHS()->getType());
+  std::optional<PrimType> LHSComputationT =
+      classify(E->getComputationLHSType());
+  std::optional<PrimType> LT = classify(LHS->getType());
+  std::optional<PrimType> RT = classify(E->getComputationResultType());
+  std::optional<PrimType> ResultT = classify(E->getType());
 
-  if (!LT || !RT)
+  if (!LT || !RT || !ResultT || !LHSComputationT)
     return false;
 
   assert(!E->getType()->isPointerType() &&
@@ -512,51 +520,86 @@ bool ByteCodeExprGen<Emitter>::VisitCompoundAssignOperator(
     return false;
   if (!this->emitLoad(*LT, E))
     return false;
+  // If necessary, cast LHS to its computation type.
+  if (*LT != *LHSComputationT) {
+    if (!this->emitCast(*LT, *LHSComputationT, E))
+      return false;
+  }
+
   if (!visit(RHS))
     return false;
 
   // Perform operation.
   switch (E->getOpcode()) {
   case BO_AddAssign:
-    if (!this->emitAdd(*LT, E))
+    if (!this->emitAdd(*LHSComputationT, E))
       return false;
     break;
   case BO_SubAssign:
-    if (!this->emitSub(*LT, E))
+    if (!this->emitSub(*LHSComputationT, E))
       return false;
     break;
-
   case BO_MulAssign:
+    if (!this->emitMul(*LHSComputationT, E))
+      return false;
+    break;
   case BO_DivAssign:
+    if (!this->emitDiv(*LHSComputationT, E))
+      return false;
+    break;
   case BO_RemAssign:
+    if (!this->emitRem(*LHSComputationT, E))
+      return false;
+    break;
   case BO_ShlAssign:
-    if (!this->emitShl(*LT, *RT, E))
+    if (!this->emitShl(*LHSComputationT, *RT, E))
       return false;
     break;
   case BO_ShrAssign:
-    if (!this->emitShr(*LT, *RT, E))
+    if (!this->emitShr(*LHSComputationT, *RT, E))
       return false;
     break;
   case BO_AndAssign:
+    if (!this->emitBitAnd(*LHSComputationT, E))
+      return false;
+    break;
   case BO_XorAssign:
+    if (!this->emitBitXor(*LHSComputationT, E))
+      return false;
+    break;
   case BO_OrAssign:
+    if (!this->emitBitOr(*LHSComputationT, E))
+      return false;
+    break;
   default:
     llvm_unreachable("Unimplemented compound assign operator");
   }
 
+  // And now cast from LHSComputationT to ResultT.
+  if (*ResultT != *LHSComputationT) {
+    if (!this->emitCast(*LHSComputationT, *ResultT, E))
+      return false;
+  }
+
   // And store the result in LHS.
   if (DiscardResult)
-    return this->emitStorePop(*LT, E);
-  return this->emitStore(*LT, E);
+    return this->emitStorePop(*ResultT, E);
+  return this->emitStore(*ResultT, E);
 }
 
 template <class Emitter> bool ByteCodeExprGen<Emitter>::discard(const Expr *E) {
+  if (E->containsErrors())
+    return false;
+
   OptionScope<Emitter> Scope(this, /*NewDiscardResult=*/true);
   return this->Visit(E);
 }
 
 template <class Emitter>
 bool ByteCodeExprGen<Emitter>::visit(const Expr *E) {
+  if (E->containsErrors())
+    return false;
+
   OptionScope<Emitter> Scope(this, /*NewDiscardResult=*/false);
   return this->Visit(E);
 }
@@ -967,6 +1010,34 @@ bool ByteCodeExprGen<Emitter>::visitArrayInitializer(const Expr *Initializer) {
         return false;
     }
     return true;
+  } else if (const auto *SL = dyn_cast<StringLiteral>(Initializer)) {
+    const ConstantArrayType *CAT =
+        Ctx.getASTContext().getAsConstantArrayType(SL->getType());
+    assert(CAT && "a string literal that's not a constant array?");
+
+    // If the initializer string is too long, a diagnostic has already been
+    // emitted. Read only the array length from the string literal.
+    unsigned N =
+        std::min(unsigned(CAT->getSize().getZExtValue()), SL->getLength());
+    size_t CharWidth = SL->getCharByteWidth();
+
+    for (unsigned I = 0; I != N; ++I) {
+      uint32_t CodeUnit = SL->getCodeUnit(I);
+
+      if (CharWidth == 1) {
+        this->emitConstSint8(CodeUnit, SL);
+        this->emitInitElemSint8(I, SL);
+      } else if (CharWidth == 2) {
+        this->emitConstUint16(CodeUnit, SL);
+        this->emitInitElemUint16(I, SL);
+      } else if (CharWidth == 4) {
+        this->emitConstUint32(CodeUnit, SL);
+        this->emitInitElemUint32(I, SL);
+      } else {
+        llvm_unreachable("unsupported character width");
+      }
+    }
+    return true;
   }
 
   assert(false && "Unknown expression for array initialization");
@@ -1119,6 +1190,7 @@ bool ByteCodeExprGen<Emitter>::visitExpr(const Expr *Exp) {
 /// We need to evaluate the initializer and return its value.
 template <class Emitter>
 bool ByteCodeExprGen<Emitter>::visitDecl(const VarDecl *VD) {
+  assert(!VD->isInvalidDecl() && "Trying to constant evaluate an invalid decl");
   std::optional<PrimType> VarT = classify(VD->getType());
 
   // Create and initialize the variable.
@@ -1197,8 +1269,34 @@ bool ByteCodeExprGen<Emitter>::visitVarDecl(const VarDecl *VD) {
 }
 
 template <class Emitter>
+bool ByteCodeExprGen<Emitter>::VisitBuiltinCallExpr(const CallExpr *E) {
+  const Function *Func = getFunction(E->getDirectCallee());
+  if (!Func)
+    return false;
+
+  // Put arguments on the stack.
+  for (const auto *Arg : E->arguments()) {
+    if (!this->visit(Arg))
+      return false;
+  }
+
+  if (!this->emitCallBI(Func, E))
+    return false;
+
+  if (DiscardResult) {
+    QualType ReturnType = E->getCallReturnType(Ctx.getASTContext());
+    PrimType T = classifyPrim(ReturnType);
+
+    return this->emitPop(T, E);
+  }
+
+  return true;
+}
+
+template <class Emitter>
 bool ByteCodeExprGen<Emitter>::VisitCallExpr(const CallExpr *E) {
-  assert(!E->getBuiltinCallee() && "Builtin functions aren't supported yet");
+  if (E->getBuiltinCallee())
+    return VisitBuiltinCallExpr(E);
 
   const Decl *Callee = E->getCalleeDecl();
   if (const auto *FuncDecl = dyn_cast_or_null<FunctionDecl>(Callee)) {
@@ -1232,9 +1330,9 @@ bool ByteCodeExprGen<Emitter>::VisitCallExpr(const CallExpr *E) {
         return false;
     }
 
-    // In any case call the function. The return value will end up on the stack and
-    // if the function has RVO, we already have the pointer on the stack to write
-    // the result into.
+    // In any case call the function. The return value will end up on the stack
+    // and if the function has RVO, we already have the pointer on the stack to
+    // write the result into.
     if (!this->emitCall(Func, E))
       return false;
 
@@ -1301,11 +1399,17 @@ bool ByteCodeExprGen<Emitter>::VisitUnaryOperator(const UnaryOperator *E) {
   const Expr *SubExpr = E->getSubExpr();
   std::optional<PrimType> T = classify(SubExpr->getType());
 
-  // TODO: Support pointers for inc/dec operators.
   switch (E->getOpcode()) {
   case UO_PostInc: { // x++
     if (!this->visit(SubExpr))
       return false;
+
+    if (T == PT_Ptr) {
+      if (!this->emitIncPtr(E))
+        return false;
+
+      return DiscardResult ? this->emitPopPtr(E) : true;
+    }
 
     return DiscardResult ? this->emitIncPop(*T, E) : this->emitInc(*T, E);
   }
@@ -1313,11 +1417,25 @@ bool ByteCodeExprGen<Emitter>::VisitUnaryOperator(const UnaryOperator *E) {
     if (!this->visit(SubExpr))
       return false;
 
+    if (T == PT_Ptr) {
+      if (!this->emitDecPtr(E))
+        return false;
+
+      return DiscardResult ? this->emitPopPtr(E) : true;
+    }
+
     return DiscardResult ? this->emitDecPop(*T, E) : this->emitDec(*T, E);
   }
   case UO_PreInc: { // ++x
     if (!this->visit(SubExpr))
       return false;
+
+    if (T == PT_Ptr) {
+      this->emitLoadPtr(E);
+      this->emitConstUint8(1, E);
+      this->emitAddOffsetUint8(E);
+      return DiscardResult ? this->emitStorePopPtr(E) : this->emitStorePtr(E);
+    }
 
     // Post-inc and pre-inc are the same if the value is to be discarded.
     if (DiscardResult)
@@ -1331,6 +1449,13 @@ bool ByteCodeExprGen<Emitter>::VisitUnaryOperator(const UnaryOperator *E) {
   case UO_PreDec: { // --x
     if (!this->visit(SubExpr))
       return false;
+
+    if (T == PT_Ptr) {
+      this->emitLoadPtr(E);
+      this->emitConstUint8(1, E);
+      this->emitSubOffsetUint8(E);
+      return DiscardResult ? this->emitStorePopPtr(E) : this->emitStorePtr(E);
+    }
 
     // Post-dec and pre-dec are the same if the value is to be discarded.
     if (DiscardResult)
