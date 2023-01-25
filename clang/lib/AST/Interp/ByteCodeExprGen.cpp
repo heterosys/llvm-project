@@ -11,6 +11,7 @@
 #include "ByteCodeGenError.h"
 #include "ByteCodeStmtGen.h"
 #include "Context.h"
+#include "Floating.h"
 #include "Function.h"
 #include "PrimType.h"
 #include "Program.h"
@@ -95,6 +96,41 @@ bool ByteCodeExprGen<Emitter>::VisitCastExpr(const CastExpr *CE) {
     return this->emitGetPtrBase(ToBase->Offset, CE);
   }
 
+  case CK_FloatingCast: {
+    if (!this->visit(SubExpr))
+      return false;
+    const auto *TargetSemantics =
+        &Ctx.getASTContext().getFloatTypeSemantics(CE->getType());
+    return this->emitCastFP(TargetSemantics, getRoundingMode(CE), CE);
+  }
+
+  case CK_IntegralToFloating: {
+    std::optional<PrimType> FromT = classify(SubExpr->getType());
+    if (!FromT)
+      return false;
+
+    if (!this->visit(SubExpr))
+      return false;
+
+    const auto *TargetSemantics =
+        &Ctx.getASTContext().getFloatTypeSemantics(CE->getType());
+    llvm::RoundingMode RM = getRoundingMode(CE);
+    return this->emitCastIntegralFloating(*FromT, TargetSemantics, RM, CE);
+  }
+
+  case CK_FloatingToBoolean:
+  case CK_FloatingToIntegral: {
+    std::optional<PrimType> ToT = classify(CE->getType());
+
+    if (!ToT)
+      return false;
+
+    if (!this->visit(SubExpr))
+      return false;
+
+    return this->emitCastFloatingIntegral(*ToT, CE);
+  }
+
   case CK_ArrayToPointerDecay:
   case CK_AtomicToNonAtomic:
   case CK_ConstructorConversion:
@@ -134,6 +170,14 @@ bool ByteCodeExprGen<Emitter>::VisitIntegerLiteral(const IntegerLiteral *LE) {
     return true;
 
   return this->emitConst(LE->getValue(), LE);
+}
+
+template <class Emitter>
+bool ByteCodeExprGen<Emitter>::VisitFloatingLiteral(const FloatingLiteral *E) {
+  if (DiscardResult)
+    return true;
+
+  return this->emitConstFloat(E->getValue(), E);
 }
 
 template <class Emitter>
@@ -195,14 +239,22 @@ bool ByteCodeExprGen<Emitter>::VisitBinaryOperator(const BinaryOperator *BO) {
   case BO_GE:
     return Discard(this->emitGE(*LT, BO));
   case BO_Sub:
+    if (BO->getType()->isFloatingType())
+      return Discard(this->emitSubf(getRoundingMode(BO), BO));
     return Discard(this->emitSub(*T, BO));
   case BO_Add:
+    if (BO->getType()->isFloatingType())
+      return Discard(this->emitAddf(getRoundingMode(BO), BO));
     return Discard(this->emitAdd(*T, BO));
   case BO_Mul:
+    if (BO->getType()->isFloatingType())
+      return Discard(this->emitMulf(getRoundingMode(BO), BO));
     return Discard(this->emitMul(*T, BO));
   case BO_Rem:
     return Discard(this->emitRem(*T, BO));
   case BO_Div:
+    if (BO->getType()->isFloatingType())
+      return Discard(this->emitDivf(getRoundingMode(BO), BO));
     return Discard(this->emitDiv(*T, BO));
   case BO_Assign:
     if (DiscardResult)
@@ -499,8 +551,85 @@ bool ByteCodeExprGen<Emitter>::VisitCharacterLiteral(
 }
 
 template <class Emitter>
+bool ByteCodeExprGen<Emitter>::VisitFloatCompoundAssignOperator(
+    const CompoundAssignOperator *E) {
+  assert(E->getType()->isFloatingType());
+
+  const Expr *LHS = E->getLHS();
+  const Expr *RHS = E->getRHS();
+  llvm::RoundingMode RM = getRoundingMode(E);
+  QualType LHSComputationType = E->getComputationLHSType();
+  QualType ResultType = E->getComputationResultType();
+  std::optional<PrimType> LT = classify(LHSComputationType);
+  std::optional<PrimType> RT = classify(ResultType);
+
+  if (!LT || !RT)
+    return false;
+
+  // First, visit LHS.
+  if (!visit(LHS))
+    return false;
+
+  if (!this->emitLoad(*LT, E))
+    return false;
+
+  // If necessary, convert LHS to its computation type.
+  if (LHS->getType() != LHSComputationType) {
+    const auto *TargetSemantics =
+        &Ctx.getASTContext().getFloatTypeSemantics(LHSComputationType);
+
+    if (!this->emitCastFP(TargetSemantics, RM, E))
+      return false;
+  }
+
+  // Now load RHS.
+  if (!visit(RHS))
+    return false;
+
+  switch (E->getOpcode()) {
+  case BO_AddAssign:
+    if (!this->emitAddf(RM, E))
+      return false;
+    break;
+  case BO_SubAssign:
+    if (!this->emitSubf(RM, E))
+      return false;
+    break;
+  case BO_MulAssign:
+    if (!this->emitMulf(RM, E))
+      return false;
+    break;
+  case BO_DivAssign:
+    if (!this->emitDivf(RM, E))
+      return false;
+    break;
+  default:
+    return false;
+  }
+
+  // If necessary, convert result to LHS's type.
+  if (LHS->getType() != ResultType) {
+    const auto *TargetSemantics =
+        &Ctx.getASTContext().getFloatTypeSemantics(LHS->getType());
+
+    if (!this->emitCastFP(TargetSemantics, RM, E))
+      return false;
+  }
+
+  if (DiscardResult)
+    return this->emitStorePop(*LT, E);
+  return this->emitStore(*LT, E);
+}
+
+template <class Emitter>
 bool ByteCodeExprGen<Emitter>::VisitCompoundAssignOperator(
     const CompoundAssignOperator *E) {
+
+  // Handle floating point operations separately here, since they
+  // require special care.
+  if (E->getType()->isFloatingType())
+    return VisitFloatCompoundAssignOperator(E);
+
   const Expr *LHS = E->getLHS();
   const Expr *RHS = E->getRHS();
   std::optional<PrimType> LHSComputationT =
@@ -514,6 +643,8 @@ bool ByteCodeExprGen<Emitter>::VisitCompoundAssignOperator(
 
   assert(!E->getType()->isPointerType() &&
          "Support pointer arithmethic in compound assignment operators");
+
+  assert(!E->getType()->isFloatingType() && "Handled above");
 
   // Get LHS pointer, load its value and get RHS value.
   if (!visit(LHS))
@@ -636,6 +767,8 @@ bool ByteCodeExprGen<Emitter>::visitZeroInitializer(PrimType T, const Expr *E) {
     return this->emitZeroUint64(E);
   case PT_Ptr:
     return this->emitNullPtr(E);
+  case PT_Float:
+    assert(false);
   }
   llvm_unreachable("unknown primitive type");
 }
@@ -800,6 +933,7 @@ bool ByteCodeExprGen<Emitter>::emitConst(T Value, const Expr *E) {
   case PT_Bool:
     return this->emitConstBool(Value, E);
   case PT_Ptr:
+  case PT_Float:
     llvm_unreachable("Invalid integral type");
     break;
   }
@@ -831,7 +965,7 @@ unsigned ByteCodeExprGen<Emitter>::allocateLocalPrimitive(DeclTy &&Src,
   Descriptor *D = P.createDescriptor(Src, Ty, Descriptor::InlineDescMD, IsConst,
                                      Src.is<const Expr *>());
   Scope::Local Local = this->createLocal(D);
-  if (auto *VD = dyn_cast_or_null<ValueDecl>(Src.dyn_cast<const Decl *>()))
+  if (auto *VD = dyn_cast_if_present<ValueDecl>(Src.dyn_cast<const Decl *>()))
     Locals.insert({VD, Local});
   VarScope->add(Local, IsExtended);
   return Local.Offset;
@@ -888,8 +1022,6 @@ bool ByteCodeExprGen<Emitter>::visitArrayInitializer(const Expr *Initializer) {
     for (const Expr *Init : InitList->inits()) {
       if (std::optional<PrimType> T = classify(Init->getType())) {
         // Visit the primitive element like normal.
-        if (!this->emitDupPtr(Init))
-          return false;
         if (!this->visit(Init))
           return false;
         if (!this->emitInitElem(*T, ElementIndex, Init))
@@ -908,9 +1040,9 @@ bool ByteCodeExprGen<Emitter>::visitArrayInitializer(const Expr *Initializer) {
 
         if (!visitInitializer(Init))
           return false;
-      }
         if (!this->emitPopPtr(Init))
           return false;
+      }
 
       ++ElementIndex;
     }
@@ -1299,7 +1431,7 @@ bool ByteCodeExprGen<Emitter>::VisitCallExpr(const CallExpr *E) {
     return VisitBuiltinCallExpr(E);
 
   const Decl *Callee = E->getCalleeDecl();
-  if (const auto *FuncDecl = dyn_cast_or_null<FunctionDecl>(Callee)) {
+  if (const auto *FuncDecl = dyn_cast_if_present<FunctionDecl>(Callee)) {
     const Function *Func = getFunction(FuncDecl);
     if (!Func)
       return false;

@@ -58,6 +58,7 @@ public:
   // Expression visitors - result returned on interp stack.
   bool VisitCastExpr(const CastExpr *E);
   bool VisitIntegerLiteral(const IntegerLiteral *E);
+  bool VisitFloatingLiteral(const FloatingLiteral *E);
   bool VisitParenExpr(const ParenExpr *E);
   bool VisitBinaryOperator(const BinaryOperator *E);
   bool VisitPointerArithBinOp(const BinaryOperator *E);
@@ -84,6 +85,7 @@ public:
   bool VisitStringLiteral(const StringLiteral *E);
   bool VisitCharacterLiteral(const CharacterLiteral *E);
   bool VisitCompoundAssignOperator(const CompoundAssignOperator *E);
+  bool VisitFloatCompoundAssignOperator(const CompoundAssignOperator *E);
 
 protected:
   bool visitExpr(const Expr *E) override;
@@ -232,6 +234,15 @@ private:
   /// given VarDecl.
   bool shouldBeGloballyIndexed(const VarDecl *VD) const {
     return VD->hasGlobalStorage() || VD->isConstexpr();
+  }
+
+  llvm::RoundingMode getRoundingMode(const Expr *E) const {
+    FPOptions FPO = E->getFPFeaturesInEffect(Ctx.getLangOpts());
+
+    if (FPO.getRoundingMode() == llvm::RoundingMode::Dynamic)
+      return llvm::RoundingMode::NearestTiesToEven;
+
+    return FPO.getRoundingMode();
   }
 
 protected:
