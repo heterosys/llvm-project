@@ -37,15 +37,21 @@ public:
   /// generally more efficient in compile time.  When set to false, its initial
   /// traversal of the region tree is bottom up on each block, which may match
   /// larger patterns when given an ambiguous pattern set.
+  ///
+  /// Note: Only applicable when simplifying entire regions.
   bool useTopDownTraversal = false;
 
-  // Perform control flow optimizations to the region tree after applying all
-  // patterns.
+  /// Perform control flow optimizations to the region tree after applying all
+  /// patterns.
+  ///
+  /// Note: Only applicable when simplifying entire regions.
   bool enableRegionSimplification = true;
 
   /// This specifies the maximum number of times the rewriter will iterate
   /// between applying patterns and simplifying regions. Use `kNoLimit` to
   /// disable this iteration limit.
+  ///
+  /// Note: Only applicable when simplifying entire regions.
   int64_t maxIterations = 10;
 
   /// This specifies the maximum number of rewrites within an iteration. Use
@@ -53,6 +59,22 @@ public:
   int64_t maxNumRewrites = kNoLimit;
 
   static constexpr int64_t kNoLimit = -1;
+
+  /// Only ops within the scope are added to the worklist. If no scope is
+  /// specified, the closest enclosing region is used as a scope.
+  Region *scope = nullptr;
+
+  /// Strict mode can restrict the ops that are added to the worklist during
+  /// the rewrite.
+  ///
+  /// * GreedyRewriteStrictness::AnyOp: No ops are excluded.
+  /// * GreedyRewriteStrictness::ExistingAndNewOps: Only pre-existing ops (that
+  ///   were on the worklist at the very beginning) and newly created ops are
+  ///   enqueued. All other ops are excluded.
+  /// * GreedyRewriteStrictness::ExistingOps: Only pre-existing ops (that were
+  ///   were on the worklist at the very beginning) enqueued. All other ops are
+  ///   excluded.
+  GreedyRewriteStrictness strictMode = GreedyRewriteStrictness::AnyOp;
 };
 
 //===----------------------------------------------------------------------===//
@@ -95,14 +117,8 @@ inline LogicalResult applyPatternsAndFoldGreedily(
 ///
 /// Newly created ops and other pre-existing ops that use results of rewritten
 /// ops or supply operands to such ops are simplified, unless such ops are
-/// excluded via `strictMode`. Any other ops remain unmodified (i.e., regardless
-/// of `strictMode`).
-///
-/// * GreedyRewriteStrictness::AnyOp: No ops are excluded.
-/// * GreedyRewriteStrictness::ExistingAndNewOps: Only pre-existing and newly
-///   created ops are simplified. All other ops are excluded.
-/// * GreedyRewriteStrictness::ExistingOps: Only pre-existing ops are
-///   simplified. All other ops are excluded.
+/// excluded via `config.strictMode`. Any other ops remain unmodified (i.e.,
+/// regardless of `strictMode`).
 ///
 /// In addition to strictness, a region scope can be specified. Only ops within
 /// the scope are simplified. This is similar to `applyPatternsAndFoldGreedily`,
@@ -117,25 +133,20 @@ inline LogicalResult applyPatternsAndFoldGreedily(
 /// Returns success if the iterative process converged and no more patterns can
 /// be matched. `changed` is set to true if the IR was modified at all.
 /// `allOpsErased` is set to true if all ops in `ops` were erased.
-LogicalResult applyOpPatternsAndFold(ArrayRef<Operation *> ops,
-                                     const FrozenRewritePatternSet &patterns,
-                                     GreedyRewriteStrictness strictMode,
-                                     bool *changed = nullptr,
-                                     bool *allErased = nullptr,
-                                     Region *scope = nullptr);
+LogicalResult
+applyOpPatternsAndFold(ArrayRef<Operation *> ops,
+                       const FrozenRewritePatternSet &patterns,
+                       GreedyRewriteConfig config = GreedyRewriteConfig(),
+                       bool *changed = nullptr, bool *allErased = nullptr);
 
-/// Applies the specified patterns on `op` alone while also trying to fold it,
-/// by selecting the highest benefits patterns in a greedy manner. Returns
-/// success if no more patterns can be matched. `erased` is set to true if `op`
-/// was folded away or erased as a result of becoming dead.
-///
-/// Returns success if the iterative process converged and no more patterns can
-/// be matched.
+/// Applies the specified patterns on `op` while also trying to fold it.
+/// This function is a shortcut for the ArrayRef<Operation *> overload and
+/// behaves the same way.
 inline LogicalResult
 applyOpPatternsAndFold(Operation *op, const FrozenRewritePatternSet &patterns,
+                       GreedyRewriteConfig config = GreedyRewriteConfig(),
                        bool *erased = nullptr) {
-  return applyOpPatternsAndFold(ArrayRef(op), patterns,
-                                GreedyRewriteStrictness::ExistingOps,
+  return applyOpPatternsAndFold(ArrayRef(op), patterns, config,
                                 /*changed=*/nullptr, erased);
 }
 
