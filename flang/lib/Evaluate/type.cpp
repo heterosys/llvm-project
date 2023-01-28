@@ -215,10 +215,11 @@ static const semantics::Symbol *FindParentComponent(
   }
   if (scope) {
     const auto &dtDetails{typeSymbol.get<semantics::DerivedTypeDetails>()};
+    // TODO: Combine with semantics::DerivedTypeDetails::GetParentComponent
     if (auto extends{dtDetails.GetParentComponentName()}) {
       if (auto iter{scope->find(*extends)}; iter != scope->cend()) {
-        if (const Symbol & symbol{*iter->second};
-            symbol.test(Symbol::Flag::ParentComp)) {
+        if (const semantics::Symbol & symbol{*iter->second};
+            symbol.test(semantics::Symbol::Flag::ParentComp)) {
           return &symbol;
         }
       }
