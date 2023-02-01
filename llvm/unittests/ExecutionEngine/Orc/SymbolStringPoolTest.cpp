@@ -90,6 +90,14 @@ TEST_F(SymbolStringPoolTest, NonOwningPointerBasics) {
   // Assignment.
   ANP2 = ANP1;
   ANP2 = A;
+
+  SymbolStringPtr S(ANP1); // Construct SymbolStringPtr from non-owning.
+  EXPECT_EQ(S, A);
+
+  DenseMap<SymbolStringPtr, int> M;
+  M[A] = 42;
+  EXPECT_EQ(M.find_as(ANP1)->second, 42);
+  EXPECT_EQ(M.find_as(BNP), M.end());
 }
 
 TEST_F(SymbolStringPoolTest, NonOwningPointerRefCounts) {
