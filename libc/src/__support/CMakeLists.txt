@@ -17,7 +17,7 @@ add_header_library(
 add_header_library(
   compiler_features
   HDRS
-    macros/compiler_features.h
+    macros/properties/compiler.h
 )
 
 add_header_library(
@@ -33,9 +33,9 @@ add_header_library(
   HDRS
     common.h
     endian.h
-    macros/architectures.h
+    macros/properties/architectures.h
     macros/attributes.h
-    macros/cpu_features.h
+    macros/properties/cpu_features.h
 )
 
 add_header_library(
