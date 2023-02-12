@@ -40287,16 +40287,6 @@ static SDValue combineX86ShufflesRecursively(
     OpMask.assign(NumElts, SM_SentinelUndef);
     std::iota(OpMask.begin(), OpMask.end(), ExtractIdx);
     OpZero = OpUndef = APInt::getNullValue(NumElts);
-  } else if (Op.getOpcode() == ISD::TRUNCATE &&
-             (RootSizeInBits % Op.getOperand(0).getValueSizeInBits()) == 0) {
-    SDValue SrcVec = Op.getOperand(0);
-    unsigned Scale = SrcVec.getValueSizeInBits() / VT.getSizeInBits();
-    unsigned NumElts = VT.getVectorNumElements();
-    OpInputs.assign({SrcVec});
-    OpMask.assign(Scale * NumElts, SM_SentinelUndef);
-    OpZero = OpUndef = APInt::getNullValue(Scale * NumElts);
-    for (unsigned I = 0; I != NumElts; ++I)
-      OpMask[I] = I * Scale;
   } else {
     return SDValue();
   }
@@ -44471,6 +44461,18 @@ static SDValue combinePredicateReduction(SDNode *Extract, SelectionDAG &DAG,
         if ((BinOp == ISD::AND && CC == ISD::CondCode::SETEQ) ||
             (BinOp == ISD::OR && CC == ISD::CondCode::SETNE)) {
           EVT VecVT = Match.getOperand(0).getValueType();
+
+          // If representable as a scalar integer:
+          // For all_of(setcc(x,y,eq)) - use (iX)x == (iX)y.
+          // For any_of(setcc(x,y,ne)) - use (iX)x != (iX)y.
+          EVT IntVT = EVT::getIntegerVT(Ctx, VecVT.getSizeInBits());
+          if (TLI.isTypeLegal(IntVT)) {
+            SDValue LHS = DAG.getFreeze(Match.getOperand(0));
+            SDValue RHS = DAG.getFreeze(Match.getOperand(1));
+            return DAG.getSetCC(DL, ExtractVT, DAG.getBitcast(IntVT, LHS),
+                                DAG.getBitcast(IntVT, RHS), CC);
+          }
+
           EVT VecSVT = VecVT.getScalarType();
           if (VecSVT != MVT::i8 && (VecSVT.getSizeInBits() % 8) == 0) {
             NumElts *= VecSVT.getSizeInBits() / 8;
