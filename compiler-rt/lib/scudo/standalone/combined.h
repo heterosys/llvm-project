@@ -305,7 +305,7 @@ public:
 
   NOINLINE void *allocate(uptr Size, Chunk::Origin Origin,
                           uptr Alignment = MinAlignment,
-                          bool ZeroContents = false) {
+                          bool ZeroContents = false) NO_THREAD_SAFETY_ANALYSIS {
     initThreadMaybe();
 
     const Options Options = Primary.Options.load();
@@ -389,9 +389,10 @@ public:
       if (UnlockRequired)
         TSD->unlock();
     }
-    if (UNLIKELY(ClassId == 0))
+    if (UNLIKELY(ClassId == 0)) {
       Block = Secondary.allocate(Options, Size, Alignment, &SecondaryBlockEnd,
                                  FillContents);
+    }
 
     if (UNLIKELY(!Block)) {
       if (Options.get(OptionBit::MayReturnNull))
@@ -687,6 +688,8 @@ public:
     void *NewPtr = allocate(NewSize, Chunk::Origin::Malloc, Alignment);
     if (LIKELY(NewPtr)) {
       memcpy(NewPtr, OldTaggedPtr, Min(NewSize, OldSize));
+      if (UNLIKELY(&__scudo_deallocate_hook))
+        __scudo_deallocate_hook(OldTaggedPtr);
       quarantineOrDeallocateChunk(Options, OldTaggedPtr, &OldHeader, OldSize);
     }
     return NewPtr;
@@ -695,7 +698,7 @@ public:
   // TODO(kostyak): disable() is currently best-effort. There are some small
   //                windows of time when an allocation could still succeed after
   //                this function finishes. We will revisit that later.
-  void disable() {
+  void disable() NO_THREAD_SAFETY_ANALYSIS {
     initThreadMaybe();
 #ifdef GWP_ASAN_HOOKS
     GuardedAlloc.disable();
@@ -707,7 +710,7 @@ public:
     Secondary.disable();
   }
 
-  void enable() {
+  void enable() NO_THREAD_SAFETY_ANALYSIS {
     initThreadMaybe();
     Secondary.enable();
     Primary.enable();
@@ -1122,7 +1125,8 @@ private:
   }
 
   void quarantineOrDeallocateChunk(Options Options, void *TaggedPtr,
-                                   Chunk::UnpackedHeader *Header, uptr Size) {
+                                   Chunk::UnpackedHeader *Header,
+                                   uptr Size) NO_THREAD_SAFETY_ANALYSIS {
     void *Ptr = getHeaderTaggedPointer(TaggedPtr);
     Chunk::UnpackedHeader NewHeader = *Header;
     // If the quarantine is disabled, the actual size of a chunk is 0 or larger
