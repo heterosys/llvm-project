@@ -1163,9 +1163,9 @@ static Value *simplifyDiv(Instruction::BinaryOps Opcode, Value *Op0, Value *Op1,
   // at least as many trailing zeros as the divisor to divide evenly. If it has
   // less trailing zeros, then the result must be poison.
   const APInt *DivC;
-  if (IsExact && match(Op1, m_APInt(DivC)) && DivC->countTrailingZeros()) {
+  if (IsExact && match(Op1, m_APInt(DivC)) && DivC->countr_zero()) {
     KnownBits KnownOp0 = computeKnownBits(Op0, Q.DL, 0, Q.AC, Q.CxtI, Q.DT);
-    if (KnownOp0.countMaxTrailingZeros() < DivC->countTrailingZeros())
+    if (KnownOp0.countMaxTrailingZeros() < DivC->countr_zero())
       return PoisonValue::get(Op0->getType());
   }
 
@@ -6585,6 +6585,12 @@ static Value *simplifyLoadInst(LoadInst *LI, Value *PtrOp,
   auto *GV = dyn_cast<GlobalVariable>(getUnderlyingObject(PtrOp));
   if (!GV || !GV->isConstant() || !GV->hasDefinitiveInitializer())
     return nullptr;
+
+  // If GlobalVariable's initializer is uniform, then return the constant
+  // regardless of its offset.
+  if (Constant *C =
+          ConstantFoldLoadFromUniformValue(GV->getInitializer(), LI->getType()))
+    return C;
 
   // Try to convert operand into a constant by stripping offsets while looking
   // through invariant.group intrinsics.
