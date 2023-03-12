@@ -2,6 +2,8 @@
 // RUN: %libomptarget-run-generic 2>&1 \
 // RUN: | %fcheck-generic
 
+// UNSUPPORTED: amdgcn-amd-amdhsa
+
 #include <stdio.h>
 #include <stdlib.h>
 

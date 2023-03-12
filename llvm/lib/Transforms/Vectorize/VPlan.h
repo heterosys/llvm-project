@@ -962,17 +962,10 @@ public:
 };
 
 /// A recipe for widening select instructions.
-class VPWidenSelectRecipe : public VPRecipeBase, public VPValue {
-
-  /// Is the condition of the select loop invariant?
-  bool InvariantCond;
-
-public:
+struct VPWidenSelectRecipe : public VPRecipeBase, public VPValue {
   template <typename IterT>
-  VPWidenSelectRecipe(SelectInst &I, iterator_range<IterT> Operands,
-                      bool InvariantCond)
-      : VPRecipeBase(VPDef::VPWidenSelectSC, Operands), VPValue(this, &I),
-        InvariantCond(InvariantCond) {}
+  VPWidenSelectRecipe(SelectInst &I, iterator_range<IterT> Operands)
+      : VPRecipeBase(VPDef::VPWidenSelectSC, Operands), VPValue(this, &I) {}
 
   ~VPWidenSelectRecipe() override = default;
 
@@ -986,29 +979,37 @@ public:
   void print(raw_ostream &O, const Twine &Indent,
              VPSlotTracker &SlotTracker) const override;
 #endif
+
+  VPValue *getCond() const {
+    return getOperand(0);
+  }
+
+  bool isInvariantCond() const {
+    return getCond()->isDefinedOutsideVectorRegions();
+  }
 };
 
 /// A recipe for handling GEP instructions.
 class VPWidenGEPRecipe : public VPRecipeBase, public VPValue {
-  bool IsPtrLoopInvariant;
-  SmallBitVector IsIndexLoopInvariant;
+  bool isPointerLoopInvariant() const {
+    return getOperand(0)->isDefinedOutsideVectorRegions();
+  }
+
+  bool isIndexLoopInvariant(unsigned I) const {
+    return getOperand(I + 1)->isDefinedOutsideVectorRegions();
+  }
+
+  bool areAllOperandsInvariant() const {
+    return all_of(operands(), [](VPValue *Op) {
+      return Op->isDefinedOutsideVectorRegions();
+    });
+  }
 
 public:
   template <typename IterT>
   VPWidenGEPRecipe(GetElementPtrInst *GEP, iterator_range<IterT> Operands)
-      : VPRecipeBase(VPDef::VPWidenGEPSC, Operands), VPValue(this, GEP),
-        IsIndexLoopInvariant(GEP->getNumIndices(), false) {}
+      : VPRecipeBase(VPDef::VPWidenGEPSC, Operands), VPValue(this, GEP) {}
 
-  template <typename IterT>
-  VPWidenGEPRecipe(GetElementPtrInst *GEP, iterator_range<IterT> Operands,
-                   Loop *OrigLoop)
-      : VPRecipeBase(VPDef::VPWidenGEPSC, Operands), VPValue(this, GEP),
-        IsIndexLoopInvariant(GEP->getNumIndices(), false) {
-    IsPtrLoopInvariant = OrigLoop->isLoopInvariant(GEP->getPointerOperand());
-    for (auto Index : enumerate(GEP->indices()))
-      IsIndexLoopInvariant[Index.index()] =
-          OrigLoop->isLoopInvariant(Index.value().get());
-  }
   ~VPWidenGEPRecipe() override = default;
 
   VP_CLASSOF_IMPL(VPDef::VPWidenGEPSC)

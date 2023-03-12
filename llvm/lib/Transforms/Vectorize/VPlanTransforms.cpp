@@ -24,7 +24,7 @@
 using namespace llvm;
 
 void VPlanTransforms::VPInstructionsToVPRecipes(
-    Loop *OrigLoop, VPlanPtr &Plan,
+    VPlanPtr &Plan,
     function_ref<const InductionDescriptor *(PHINode *)>
         GetIntOrFpInductionDescriptor,
     SmallPtrSetImpl<Instruction *> &DeadInstructions, ScalarEvolution &SE,
@@ -76,17 +76,15 @@ void VPlanTransforms::VPInstructionsToVPRecipes(
               Plan->getOrAddVPValue(Store->getValueOperand()), nullptr /*Mask*/,
               false /*Consecutive*/, false /*Reverse*/);
         } else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Inst)) {
-          NewRecipe = new VPWidenGEPRecipe(
-              GEP, Plan->mapToVPValues(GEP->operands()), OrigLoop);
+          NewRecipe =
+              new VPWidenGEPRecipe(GEP, Plan->mapToVPValues(GEP->operands()));
         } else if (CallInst *CI = dyn_cast<CallInst>(Inst)) {
           NewRecipe =
               new VPWidenCallRecipe(*CI, Plan->mapToVPValues(CI->args()),
                                     getVectorIntrinsicIDForCall(CI, &TLI));
         } else if (SelectInst *SI = dyn_cast<SelectInst>(Inst)) {
-          bool InvariantCond =
-              SE.isLoopInvariant(SE.getSCEV(SI->getOperand(0)), OrigLoop);
-          NewRecipe = new VPWidenSelectRecipe(
-              *SI, Plan->mapToVPValues(SI->operands()), InvariantCond);
+          NewRecipe =
+              new VPWidenSelectRecipe(*SI, Plan->mapToVPValues(SI->operands()));
         } else {
           NewRecipe =
               new VPWidenRecipe(*Inst, Plan->mapToVPValues(Inst->operands()));
