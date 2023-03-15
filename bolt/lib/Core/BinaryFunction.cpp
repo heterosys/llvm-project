@@ -987,7 +987,7 @@ size_t BinaryFunction::getSizeOfDataInCodeAt(uint64_t Offset) const {
   if (!Islands)
     return 0;
 
-  if (Islands->DataOffsets.find(Offset) == Islands->DataOffsets.end())
+  if (!llvm::is_contained(Islands->DataOffsets, Offset))
     return 0;
 
   auto Iter = Islands->CodeOffsets.upper_bound(Offset);
@@ -4088,6 +4088,16 @@ void BinaryFunction::updateOutputValues(const MCAsmLayout &Layout) {
       const uint64_t DataOffset =
           Layout.getSymbolOffset(*getFunctionConstantIslandLabel());
       setOutputDataAddress(BaseAddress + DataOffset);
+      for (auto It : Islands->Offsets) {
+        const uint64_t OldOffset = It.first;
+        BinaryData *BD = BC.getBinaryDataAtAddress(getAddress() + OldOffset);
+        if (!BD)
+          continue;
+
+        MCSymbol *Symbol = It.second;
+        const uint64_t NewOffset = Layout.getSymbolOffset(*Symbol);
+        BD->setOutputLocation(*getCodeSection(), NewOffset);
+      }
     }
     if (isSplit()) {
       for (FunctionFragment &FF : getLayout().getSplitFragments()) {
@@ -4505,6 +4515,22 @@ bool BinaryFunction::isAArch64Veneer() const {
   }
 
   return true;
+}
+
+void BinaryFunction::addRelocation(uint64_t Address, MCSymbol *Symbol,
+                                   uint64_t RelType, uint64_t Addend,
+                                   uint64_t Value) {
+  assert(Address >= getAddress() && Address < getAddress() + getMaxSize() &&
+         "address is outside of the function");
+  uint64_t Offset = Address - getAddress();
+  LLVM_DEBUG(dbgs() << "BOLT-DEBUG: addRelocation in "
+                    << formatv("{0}@{1:x} against {2}\n", this, Offset,
+                               Symbol->getName()));
+  bool IsCI = BC.isAArch64() && isInConstantIsland(Address);
+  std::map<uint64_t, Relocation> &Rels =
+      IsCI ? Islands->Relocations : Relocations;
+  if (BC.MIB->shouldRecordCodeRelocation(RelType))
+    Rels[Offset] = Relocation{Offset, Symbol, RelType, Addend, Value};
 }
 
 } // namespace bolt
