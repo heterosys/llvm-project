@@ -124,6 +124,8 @@ Non-comprehensive list of changes in this release
 - Clang now supports ``__builtin_FILE_NAME()`` which returns the same
   information as the ``__FILE_NAME__`` macro (the presumed file name
   from the invocation point, with no path components included).
+- Clang now supports ``__builtin_assume_separate_storage`` that indicates that
+  its arguments point to objects in separate storage allocations.
 
 New Compiler Flags
 ------------------
@@ -225,6 +227,8 @@ Bug Fixes in This Version
   enabling short-circuiting coroutines use cases. This fixes
   (`#56532 <https://github.com/llvm/llvm-project/issues/56532>`_) in
   antecipation of `CWG2563 <https://cplusplus.github.io/CWG/issues/2563.html>_`.
+- Fix highlighting issue with ``_Complex`` and initialization list with more than
+  2 items. (`#61518 <https://github.com/llvm/llvm-project/issues/61518>`_)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -368,14 +372,6 @@ libclang
   has an evaluable bit width. Fixes undefined behavior when called on a
   bit-field whose width depends on a template paramter.
 
-- ``clang_parseTranslationUnit`` and ``clang_parseTranslationUnit2`` have been
-  changed to automatically locate the Clang installation directory relative to
-  the location of the libclang binary and use it for system headers installed
-  alongside the Clang installation. It is no longer necessary to manually
-  locate such system headers or use the ``clang_parseTranslationUnit2FullArgv``
-  function for this purpose if libclang has been installed in the default
-  location.
- 
 Static Analyzer
 ---------------
 - Fix incorrect alignment attribute on the this parameter of certain
