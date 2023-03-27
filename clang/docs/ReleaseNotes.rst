@@ -186,6 +186,9 @@ Improvements to Clang's diagnostics
   by prioritizing ``-Wunreachable-code-fallthrough``.
 - Clang now correctly diagnoses statement attributes ``[[clang::always_inine]]`` and
   ``[[clang::noinline]]`` when used on a statement with dependent call expressions.
+- Clang now checks for completeness of the second and third arguments in the
+  conditional operator.
+  (`#59718 <https://github.com/llvm/llvm-project/issues/59718>`_)
 
 Bug Fixes in This Version
 -------------------------
@@ -279,6 +282,8 @@ AMDGPU Support
   undefined symbols in the created module to be a linker error. To prevent this,
   pass ``-Wl,--undefined`` if compiling directly, or ``-Xoffload-linker
   --undefined`` if using an offloading language.
+- The deprecated ``-mcode-object-v3`` and ``-mno-code-object-v3`` command-line 
+  options have been removed.
 
 X86 Support
 ^^^^^^^^^^^
@@ -361,6 +366,8 @@ clang-format
   Compared to ``NextLine`` style, ``NextLineOnly`` style will not try to
   put the initializers on the current line first, instead, it will try to
   put the initializers on the next line only.
+- Add additional Qualifier Ordering support for special cases such
+  as templates, requires clauses, long qualified names.
 
 libclang
 --------
