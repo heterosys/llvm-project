@@ -254,6 +254,10 @@ Changes in existing checks
   <clang-tidy/checks/readability/misleading-indentation>` check when warning would
   be unnecessarily emitted for template dependent ``if constexpr``.
 
+- Improved :doc:`readability-static-accessed-through-instance
+  <clang-tidy/checks/readability/static-accessed-through-instance>` check to 
+  support unscoped enumerations through instances.
+
 - Fixed a false positive in :doc:`cppcoreguidelines-slicing
   <clang-tidy/checks/cppcoreguidelines/slicing>` check when warning would be
   emitted in constructor for virtual base class initialization.
@@ -270,6 +274,10 @@ Changes in existing checks
 - Fixed an issue in :doc:`google-readability-avoid-underscore-in-googletest-name
   <clang-tidy/checks/google/readability-avoid-underscore-in-googletest-name>` when using
   ``DISABLED_`` in the test suite name.
+
+- Fixed a false positive in :doc:`performance-no-automatic-move
+  <clang-tidy/checks/performance/no-automatic-move>` when warning would be
+  emitted for a const local variable to which NRVO is applied.
 
 Removed checks
 ^^^^^^^^^^^^^^
