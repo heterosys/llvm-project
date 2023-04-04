@@ -24390,7 +24390,7 @@ static SDValue LowerVectorAllEqual(const SDLoc &DL, SDValue LHS, SDValue RHS,
   // scalarization.
   bool UseKORTEST = Subtarget.useAVX512Regs();
   bool UsePTEST = Subtarget.hasSSE41();
-  if (!UsePTEST && !Mask.isAllOnes() && VT.getScalarSizeInBits() > 32)
+  if (!UsePTEST && !Mask.isAllOnes() && ScalarSize > 32)
     return SDValue();
 
   // Split down to 128/256/512-bit vector.
@@ -24419,20 +24419,23 @@ static SDValue LowerVectorAllEqual(const SDLoc &DL, SDValue LHS, SDValue RHS,
   }
 
   if (UseKORTEST && VT.is512BitVector()) {
-    LHS = DAG.getBitcast(MVT::v16i32, MaskBits(LHS));
-    RHS = DAG.getBitcast(MVT::v16i32, MaskBits(RHS));
-    SDValue V = DAG.getSetCC(DL, MVT::v16i1, LHS, RHS, ISD::SETNE);
+    MVT TestVT = MVT::getVectorVT(MVT::i32, VT.getSizeInBits() / 32);
+    MVT BoolVT = TestVT.changeVectorElementType(MVT::i1);
+    LHS = DAG.getBitcast(TestVT, MaskBits(LHS));
+    RHS = DAG.getBitcast(TestVT, MaskBits(RHS));
+    SDValue V = DAG.getSetCC(DL, BoolVT, LHS, RHS, ISD::SETNE);
     return DAG.getNode(X86ISD::KORTEST, DL, MVT::i32, V, V);
   }
 
   if (UsePTEST) {
-    MVT TestVT = VT.is128BitVector() ? MVT::v2i64 : MVT::v4i64;
+    MVT TestVT = MVT::getVectorVT(MVT::i64, VT.getSizeInBits() / 64);
     LHS = DAG.getBitcast(TestVT, MaskBits(LHS));
     RHS = DAG.getBitcast(TestVT, MaskBits(RHS));
     SDValue V = DAG.getNode(ISD::XOR, DL, TestVT, LHS, RHS);
     return DAG.getNode(X86ISD::PTEST, DL, MVT::i32, V, V);
   }
 
+  assert(VT.getSizeInBits() == 128 && "Failure to split to 128-bits");
   MVT MaskVT = ScalarSize >= 32 ? MVT::v4i32 : MVT::v16i8;
   LHS = DAG.getBitcast(MaskVT, MaskBits(LHS));
   RHS = DAG.getBitcast(MaskVT, MaskBits(RHS));
@@ -44098,6 +44101,24 @@ static SDValue combineBitcastvxi1(SelectionDAG &DAG, EVT VT, SDValue Src,
   // MOVMSK is supported in SSE2 or later.
   if (!Subtarget.hasSSE2() || (Subtarget.hasAVX512() && !PreferMovMsk))
     return SDValue();
+
+  // If the upper ops of a concatenation are undef, then try to bitcast the
+  // lower op and extend.
+  SmallVector<SDValue, 4> SubSrcOps;
+  if (collectConcatOps(Src.getNode(), SubSrcOps, DAG) &&
+      SubSrcOps.size() >= 2) {
+    SDValue LowerOp = SubSrcOps[0];
+    ArrayRef<SDValue> UpperOps(std::next(SubSrcOps.begin()), SubSrcOps.end());
+    if (LowerOp.getOpcode() == ISD::SETCC &&
+        all_of(UpperOps, [](SDValue Op) { return Op.isUndef(); })) {
+      EVT SubVT = VT.getIntegerVT(
+          *DAG.getContext(), LowerOp.getValueType().getVectorMinNumElements());
+      if (SDValue V = combineBitcastvxi1(DAG, SubVT, LowerOp, DL, Subtarget)) {
+        EVT IntVT = VT.getIntegerVT(*DAG.getContext(), VT.getSizeInBits());
+        return DAG.getBitcast(VT, DAG.getNode(ISD::ANY_EXTEND, DL, IntVT, V));
+      }
+    }
+  }
 
   // There are MOVMSK flavors for types v16i8, v32i8, v4f32, v8f32, v4f64 and
   // v8f64. So all legal 128-bit and 256-bit vectors are covered except for
