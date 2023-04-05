@@ -43,7 +43,11 @@ const char *ExplicitUnalign[] = {"MOVDQU", "MOVUPS", "MOVUPD",
 const ManualMapEntry ManualMapSet[] = {
 #define ENTRY(REG, MEM, FLAGS) {#REG, #MEM, FLAGS},
 #include "X86ManualFoldTables.def"
-#undef ENTRY
+};
+
+const std::set<StringRef> NoFoldSet= {
+#define NOFOLD(INSN) #INSN,
+#include "X86ManualFoldTables.def"
 };
 
 static bool isExplicitAlign(const CodeGenInstruction *Inst) {
@@ -81,9 +85,6 @@ class X86FoldTablesEmitter {
         : RegInst(RegInst), MemInst(MemInst) {}
 
     void print(formatted_raw_ostream &OS) const {
-      // Stop printing record if it can't fold and unfold.
-      if(CannotUnfold && CannotFold)
-        return;
       OS.indent(2);
       OS << "{X86::" << RegInst->TheDef->getName() << ", ";
       OS  << "X86::" << MemInst->TheDef->getName() << ", ";
@@ -217,19 +218,6 @@ static inline bool hasMemoryFormat(const Record *Inst) {
 
 static inline bool isNOREXRegClass(const Record *Op) {
   return Op->getName().contains("_NOREX");
-}
-
-// Get the alternative instruction pointed by "FoldGenRegForm" field.
-static inline const CodeGenInstruction *
-getAltRegInst(const CodeGenInstruction *I, const RecordKeeper &Records,
-              const CodeGenTarget &Target) {
-
-  StringRef AltRegInstStr = I->TheDef->getValueAsString("FoldGenRegForm");
-  Record *AltRegInstRec = Records.getDef(AltRegInstStr);
-  assert(AltRegInstRec &&
-         "Alternative register form instruction def not found");
-  CodeGenInstruction &AltRegInst = Target.getInstruction(AltRegInstRec);
-  return &AltRegInst;
 }
 
 // Function object - Operator() returns true if the given VEX instruction
@@ -419,15 +407,14 @@ void X86FoldTablesEmitter::addEntryWithFlags(FoldTable &Table,
     Result.CannotUnfold = true;
 
   // Check no-kz version's isMoveReg
+  StringRef RegInstName = RegRec->getName();
   Record *BaseDef = nullptr;
-  if (RegRec->getName().ends_with("rkz") &&
-      (BaseDef = Records.getDef(
-           RegRec->getName().substr(0, RegRec->getName().size() - 2)))) {
+  if (RegInstName.endswith("rkz") &&
+      (BaseDef = Records.getDef(RegInstName.drop_back(2)))) {
     Result.CannotUnfold =
         Target.getInstruction(BaseDef).isMoveReg ? true : Result.CannotUnfold;
-  } else if (RegRec->getName().ends_with("rk") &&
-             (BaseDef = Records.getDef(
-                  RegRec->getName().substr(0, RegRec->getName().size() - 1)))) {
+  } else if (RegInstName.endswith("rk") &&
+             (BaseDef = Records.getDef(RegInstName.drop_back(1)))) {
     Result.CannotUnfold =
         Target.getInstruction(BaseDef).isMoveReg ? true : Result.CannotUnfold;
   } else if (RegInstr->isMoveReg && Result.IsStore)
@@ -471,7 +458,7 @@ void X86FoldTablesEmitter::updateTables(const CodeGenInstruction *RegInstr,
   unsigned RegInSize = RegRec->getValueAsDag("InOperandList")->getNumArgs();
 
   // Instructions which Read-Modify-Write should be added to Table2Addr.
-  if (MemOutSize != RegOutSize && MemInSize == RegInSize) {
+  if (!MemOutSize && RegOutSize == 1 && MemInSize == RegInSize) {
     addEntryWithFlags(Table2Addr, RegInstr, MemInstr, S, 0, IsManual);
     return;
   }
@@ -538,7 +525,9 @@ void X86FoldTablesEmitter::run(raw_ostream &o) {
     if (!Rec->isSubClassOf("X86Inst") || Rec->getValueAsBit("isAsmParserOnly"))
       continue;
 
-    // - Do not proceed if the instruction is marked as notMemoryFoldable.
+    if (NoFoldSet.find(Rec->getName()) != NoFoldSet.end())
+      continue;
+
     // - Instructions including RST register class operands are not relevant
     //   for memory folding (for further details check the explanation in
     //   lib/Target/X86/X86InstrFPStack.td file).
@@ -546,8 +535,7 @@ void X86FoldTablesEmitter::run(raw_ostream &o) {
     //   class ptr_rc_tailcall, which can be of a size 32 or 64, to ensure
     //   safe mapping of these instruction we manually map them and exclude
     //   them from the automation.
-    if (Rec->getValueAsBit("isMemoryFoldable") == false ||
-        hasRSTRegClass(Inst) || hasPtrTailcallRegClass(Inst))
+    if (hasRSTRegClass(Inst) || hasPtrTailcallRegClass(Inst))
       continue;
 
     // Add all the memory form instructions to MemInsts, and all the register
@@ -581,16 +569,13 @@ void X86FoldTablesEmitter::run(raw_ostream &o) {
     auto Match = find_if(OpcRegInsts, IsMatch(MemInst, Variant));
     if (Match != OpcRegInsts.end()) {
       const CodeGenInstruction *RegInst = *Match;
-      // If the matched instruction has it's "FoldGenRegForm" set, map the
-      // memory form instruction to the register form instruction pointed by
-      // this field
-      if (RegInst->TheDef->isValueUnset("FoldGenRegForm")) {
-        updateTables(RegInst, MemInst);
-      } else {
-        const CodeGenInstruction *AltRegInst =
-            getAltRegInst(RegInst, Records, Target);
-        updateTables(AltRegInst, MemInst);
+      StringRef RegInstName = RegInst->TheDef->getName();
+      if (RegInstName.endswith("_REV") || RegInstName.endswith("_alt")) {
+        if (auto *RegAltRec = Records.getDef(RegInstName.drop_back(4))) {
+          RegInst = &Target.getInstruction(RegAltRec);
+        }
       }
+      updateTables(RegInst, MemInst);
       OpcRegInsts.erase(Match);
     }
   }
