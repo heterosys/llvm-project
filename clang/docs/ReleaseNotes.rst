@@ -279,6 +279,9 @@ Bug Fixes in This Version
 - Fix crash when generating code coverage information for `PseudoObjectExpr` in 
   Clang AST.
   (`#45481 <https://github.com/llvm/llvm-project/issues/45481>`_)
+- Fix the assertion hit when a template consteval function appears in a nested
+  consteval/constexpr call chain.
+  (`#61142 <https://github.com/llvm/llvm-project/issues/61142>`_)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -427,6 +430,7 @@ clang-format
   put the initializers on the next line only.
 - Add additional Qualifier Ordering support for special cases such
   as templates, requires clauses, long qualified names.
+- Fix all known issues associated with ``LambdaBodyIndentation: OuterScope``.
 
 libclang
 --------
