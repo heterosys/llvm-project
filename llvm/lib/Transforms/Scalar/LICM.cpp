@@ -105,6 +105,8 @@ STATISTIC(NumLoadPromoted, "Number of load-only promotions");
 STATISTIC(NumLoadStorePromoted, "Number of load and store promotions");
 STATISTIC(NumMinMaxHoisted,
           "Number of min/max expressions hoisted out of the loop");
+STATISTIC(NumGEPsHoisted,
+          "Number of geps reassociated and hoisted out of the loop");
 
 /// Memory promotion is enabled by default.
 static cl::opt<bool>
@@ -175,11 +177,6 @@ static bool hoistArithmetics(Instruction &I, Loop &L,
                              ICFLoopSafetyInfo &SafetyInfo,
                              MemorySSAUpdater &MSSAU, AssumptionCache *AC,
                              DominatorTree *DT);
-/// Try to simplify things like (A < INV_1 AND icmp A < INV_2) into (A <
-/// min(INV_1, INV_2)), if INV_1 and INV_2 are both loop invariants and their
-/// minimun can be computed outside of loop, and X is not a loop-invariant.
-static bool hoistMinMax(Instruction &I, Loop &L, ICFLoopSafetyInfo &SafetyInfo,
-                        MemorySSAUpdater &MSSAU);
 static Instruction *cloneInstructionInExitBlock(
     Instruction &I, BasicBlock &ExitBlock, PHINode &PN, const LoopInfo *LI,
     const LoopSafetyInfo *SafetyInfo, MemorySSAUpdater &MSSAU);
@@ -2418,6 +2415,9 @@ bool pointerInvalidatedByBlock(BasicBlock &BB, MemorySSA &MSSA, MemoryUse &MU) {
   return false;
 }
 
+/// Try to simplify things like (A < INV_1 AND icmp A < INV_2) into (A <
+/// min(INV_1, INV_2)), if INV_1 and INV_2 are both loop invariants and their
+/// minimun can be computed outside of loop, and X is not a loop-invariant.
 static bool hoistMinMax(Instruction &I, Loop &L, ICFLoopSafetyInfo &SafetyInfo,
                         MemorySSAUpdater &MSSAU) {
   bool Inverse = false;
@@ -2514,8 +2514,12 @@ static bool hoistGEP(Instruction &I, Loop &L, ICFLoopSafetyInfo &SafetyInfo,
   if (!L.isLoopInvariant(SrcPtr) || !all_of(GEP->indices(), LoopInvariant))
     return false;
 
-  assert(!all_of(Src->indices(), LoopInvariant) &&
-         "Would have been hoisted already");
+  // This can only happen if !AllowSpeculation, otherwise this would already be
+  // handled.
+  // FIXME: Should we respect AllowSpeculation in these reassociation folds?
+  // The flag exists to prevent metadata dropping, which is not relevant here.
+  if (all_of(Src->indices(), LoopInvariant))
+    return false;
 
   // The swapped GEPs are inbounds if both original GEPs are inbounds
   // and the sign of the offsets is the same. For simplicity, only
@@ -2551,6 +2555,7 @@ static bool hoistArithmetics(Instruction &I, Loop &L,
   // into (x < min(INV1, INV2)), and hoisting the invariant part of this
   // expression out of the loop.
   if (hoistMinMax(I, L, SafetyInfo, MSSAU)) {
+    ++NumHoisted;
     ++NumMinMaxHoisted;
     return true;
   }
@@ -2558,6 +2563,7 @@ static bool hoistArithmetics(Instruction &I, Loop &L,
   // Try to hoist GEPs by reassociation.
   if (hoistGEP(I, L, SafetyInfo, MSSAU, AC, DT)) {
     ++NumHoisted;
+    ++NumGEPsHoisted;
     return true;
   }
 

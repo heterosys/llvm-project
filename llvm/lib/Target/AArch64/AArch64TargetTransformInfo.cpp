@@ -2418,6 +2418,7 @@ InstructionCost AArch64TTIImpl::getArithmeticInstrCost(
       return 2 * LT.first;
     if (!Ty->getScalarType()->isFP128Ty())
       return LT.first;
+    LLVM_FALLTHROUGH;
   case ISD::FMUL:
   case ISD::FDIV:
     // These nodes are marked as 'custom' just to lower them to SVE.
