@@ -31,8 +31,6 @@ public:
 
   template <size_t N>
   StringView(const char (&Str)[N]) : First(Str), Last(Str + N - 1) {}
-  StringView(const char *First_, const char *Last_)
-      : First(First_), Last(Last_) {}
   StringView(const char *First_, size_t Len)
       : First(First_), Last(First_ + Len) {}
   StringView(const char *Str) : First(Str), Last(Str + std::strlen(Str)) {}
@@ -55,12 +53,6 @@ public:
     return npos;
   }
 
-  StringView dropFront(size_t N = 1) const {
-    if (N >= size())
-      N = size();
-    return StringView(First + N, Last);
-  }
-
   void remove_prefix(size_t N) {
     assert(size() >= N);
     First += N;
@@ -80,22 +72,17 @@ public:
     return *(end() - 1);
   }
 
-  char popFront() {
-    assert(!empty());
-    return *First++;
-  }
-
   bool consumeFront(char C) {
     if (!startsWith(C))
       return false;
-    *this = dropFront(1);
+    remove_prefix(1);
     return true;
   }
 
   bool consumeFront(StringView S) {
     if (!startsWith(S))
       return false;
-    *this = dropFront(S.size());
+    remove_prefix(S.size());
     return true;
   }
 
