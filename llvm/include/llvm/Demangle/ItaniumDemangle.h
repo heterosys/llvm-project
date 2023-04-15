@@ -531,9 +531,9 @@ struct AbiTagAttr : Node {
   Node *Base;
   StringView Tag;
 
-  AbiTagAttr(Node* Base_, StringView Tag_)
-      : Node(KAbiTagAttr, Base_->RHSComponentCache,
-             Base_->ArrayCache, Base_->FunctionCache),
+  AbiTagAttr(Node *Base_, StringView Tag_)
+      : Node(KAbiTagAttr, Base_->RHSComponentCache, Base_->ArrayCache,
+             Base_->FunctionCache),
         Base(Base_), Tag(Tag_) {}
 
   template<typename Fn> void match(Fn F) const { F(Base, Tag); }
@@ -1579,7 +1579,7 @@ public:
   template<typename Fn> void match(Fn F) const { F(SSK); }
 
   StringView getBaseName() const override {
-    auto SV = ExpandedSpecialSubstitution::getBaseName ();
+    auto SV = ExpandedSpecialSubstitution::getBaseName();
     if (isInstantiation()) {
       // The instantiations are typedefs that drop the "basic_" prefix.
       assert(SV.startsWith("basic_"));
@@ -2632,7 +2632,8 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
         assert(Res.startsWith("operator") &&
                "operator name does not start with 'operator'");
         Res.remove_prefix(sizeof("operator") - 1);
-        Res.consumeFront(' ');
+        if (Res.startsWith(' '))
+          Res.remove_prefix(1);
       }
       return Res;
     }
