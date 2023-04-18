@@ -52,10 +52,11 @@ void VPlanTransforms::VPInstructionsToVPRecipes(
       if (auto *VPPhi = dyn_cast<VPWidenPHIRecipe>(&Ingredient)) {
         auto *Phi = cast<PHINode>(VPPhi->getUnderlyingValue());
         if (const auto *II = GetIntOrFpInductionDescriptor(Phi)) {
-          VPValue *Start = Plan->getVPValueOrAddLiveIn(II->getStartValue());
+          VPValue *Start = Plan->getOrAddVPValue(II->getStartValue());
           VPValue *Step =
               vputils::getOrCreateVPValueForSCEVExpr(*Plan, II->getStep(), SE);
-          NewRecipe = new VPWidenIntOrFpInductionRecipe(Phi, Start, Step, *II);
+          NewRecipe =
+              new VPWidenIntOrFpInductionRecipe(Phi, Start, Step, *II, true);
         } else {
           Plan->addVPValue(Phi, VPPhi);
           continue;
@@ -67,15 +68,13 @@ void VPlanTransforms::VPInstructionsToVPRecipes(
         // Create VPWidenMemoryInstructionRecipe for loads and stores.
         if (LoadInst *Load = dyn_cast<LoadInst>(Inst)) {
           NewRecipe = new VPWidenMemoryInstructionRecipe(
-              *Load,
-              Plan->getVPValueOrAddLiveIn(getLoadStorePointerOperand(Inst)),
+              *Load, Plan->getOrAddVPValue(getLoadStorePointerOperand(Inst)),
               nullptr /*Mask*/, false /*Consecutive*/, false /*Reverse*/);
         } else if (StoreInst *Store = dyn_cast<StoreInst>(Inst)) {
           NewRecipe = new VPWidenMemoryInstructionRecipe(
-              *Store,
-              Plan->getVPValueOrAddLiveIn(getLoadStorePointerOperand(Inst)),
-              Plan->getVPValueOrAddLiveIn(Store->getValueOperand()),
-              nullptr /*Mask*/, false /*Consecutive*/, false /*Reverse*/);
+              *Store, Plan->getOrAddVPValue(getLoadStorePointerOperand(Inst)),
+              Plan->getOrAddVPValue(Store->getValueOperand()), nullptr /*Mask*/,
+              false /*Consecutive*/, false /*Reverse*/);
         } else if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Inst)) {
           NewRecipe =
               new VPWidenGEPRecipe(GEP, Plan->mapToVPValues(GEP->operands()));
@@ -473,10 +472,7 @@ void VPlanTransforms::removeRedundantCanonicalIVs(VPlan &Plan) {
     // everything WidenNewIV's users need. That is, WidenOriginalIV will
     // generate a vector phi or all users of WidenNewIV demand the first lane
     // only.
-    if (any_of(WidenOriginalIV->users(),
-               [WidenOriginalIV](VPUser *U) {
-                 return !U->usesScalars(WidenOriginalIV);
-               }) ||
+    if (WidenOriginalIV->needsVectorIV() ||
         vputils::onlyFirstLaneUsed(WidenNewIV)) {
       WidenNewIV->replaceAllUsesWith(WidenOriginalIV);
       WidenNewIV->eraseFromParent();
@@ -604,9 +600,9 @@ void VPlanTransforms::optimizeForVFAndUF(VPlan &Plan, ElementCount BestVF,
     return;
 
   LLVMContext &Ctx = SE.getContext();
-  auto *BOC = new VPInstruction(
-      VPInstruction::BranchOnCond,
-      {Plan.getVPValueOrAddLiveIn(ConstantInt::getTrue(Ctx))});
+  auto *BOC =
+      new VPInstruction(VPInstruction::BranchOnCond,
+                        {Plan.getOrAddExternalDef(ConstantInt::getTrue(Ctx))});
   Term->eraseFromParent();
   ExitingVPBB->appendRecipe(BOC);
   Plan.setVF(BestVF);
@@ -657,10 +653,9 @@ static bool properlyDominates(const VPRecipeBase *A, const VPRecipeBase *B,
   return VPDT.properlyDominates(ParentA, ParentB);
 }
 
-/// Sink users of \p FOR after the recipe defining the previous value \p
-/// Previous of the recurrence. \returns true if all users of \p FOR could be
-/// re-arranged as needed or false if it is not possible.
-static bool
+// Sink users of \p FOR after the recipe defining the previous value \p Previous
+// of the recurrence.
+static void
 sinkRecurrenceUsersAfterPrevious(VPFirstOrderRecurrencePHIRecipe *FOR,
                                  VPRecipeBase *Previous,
                                  VPDominatorTree &VPDT) {
@@ -669,18 +664,15 @@ sinkRecurrenceUsersAfterPrevious(VPFirstOrderRecurrencePHIRecipe *FOR,
   SmallPtrSet<VPRecipeBase *, 8> Seen;
   Seen.insert(Previous);
   auto TryToPushSinkCandidate = [&](VPRecipeBase *SinkCandidate) {
-    // The previous value must not depend on the users of the recurrence phi. In
-    // that case, FOR is not a fixed order recurrence.
-    if (SinkCandidate == Previous)
-      return false;
-
+    assert(
+        SinkCandidate != Previous &&
+        "The previous value cannot depend on the users of the recurrence phi.");
     if (isa<VPHeaderPHIRecipe>(SinkCandidate) ||
         !Seen.insert(SinkCandidate).second ||
         properlyDominates(Previous, SinkCandidate, VPDT))
-      return true;
+      return;
 
     WorkList.push_back(SinkCandidate);
-    return true;
   };
 
   // Recursively sink users of FOR after Previous.
@@ -691,8 +683,7 @@ sinkRecurrenceUsersAfterPrevious(VPFirstOrderRecurrencePHIRecipe *FOR,
            "only recipes with a single defined value expected");
     for (VPUser *User : Current->getVPSingleValue()->users()) {
       if (auto *R = dyn_cast<VPRecipeBase>(User))
-        if (!TryToPushSinkCandidate(R))
-          return false;
+        TryToPushSinkCandidate(R);
     }
   }
 
@@ -709,10 +700,9 @@ sinkRecurrenceUsersAfterPrevious(VPFirstOrderRecurrencePHIRecipe *FOR,
     SinkCandidate->moveAfter(Previous);
     Previous = SinkCandidate;
   }
-  return true;
 }
 
-bool VPlanTransforms::adjustFixedOrderRecurrences(VPlan &Plan,
+void VPlanTransforms::adjustFixedOrderRecurrences(VPlan &Plan,
                                                   VPBuilder &Builder) {
   VPDominatorTree VPDT;
   VPDT.recalculate(Plan);
@@ -735,8 +725,7 @@ bool VPlanTransforms::adjustFixedOrderRecurrences(VPlan &Plan,
       Previous = PrevPhi->getBackedgeValue()->getDefiningRecipe();
     }
 
-    if (!sinkRecurrenceUsersAfterPrevious(FOR, Previous, VPDT))
-      return false;
+    sinkRecurrenceUsersAfterPrevious(FOR, Previous, VPDT);
 
     // Introduce a recipe to combine the incoming and previous values of a
     // fixed-order recurrence.
@@ -755,5 +744,4 @@ bool VPlanTransforms::adjustFixedOrderRecurrences(VPlan &Plan,
     // all users.
     RecurSplice->setOperand(0, FOR);
   }
-  return true;
 }
