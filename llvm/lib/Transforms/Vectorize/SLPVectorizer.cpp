@@ -7017,7 +7017,7 @@ public:
                                    VecTy, std::nullopt, CostKind, 0, EEVTy);
       }
     }
-    InVectors.assign(1, VecBase);
+    InVectors.assign(1, Constant::getNullValue(VecTy));
     return VecBase;
   }
   void add(const TreeEntry *E1, const TreeEntry *E2, ArrayRef<int> Mask) {
