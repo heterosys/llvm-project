@@ -325,6 +325,12 @@ Bug Fixes in This Version
   member pointer as an invalid expression.
 - Fix crash when member function contains invalid default argument.
   (`#62122 <https://github.com/llvm/llvm-project/issues/62122>`_)
+- Fix crash when handling undefined template partial specialization
+  (`#61356 <https://github.com/llvm/llvm-project/issues/61356>`_)
+- Fix a crash caused by incorrectly evaluating constraints on an inheriting
+  constructor declaration.
+  (`#62361 <https://github.com/llvm/llvm-project/issues/62361>`_)
+  (`#62362 <https://github.com/llvm/llvm-project/issues/62362>`_)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -409,6 +415,15 @@ Arm and AArch64 Support
 
 - Clang builtin ``__arithmetic_fence`` and the command line option ``-fprotect-parens``
   are now enabled for AArch64.
+
+- Clang supports flag output operands by which conditions in the NZCV could be outputs
+  of inline assembly for AArch64. This change is more consistent with the behavior of
+  GCC.
+
+   .. code-block:: c
+
+     // int a = foo(); int* b = bar();
+     asm("ands %w[a], %w[a], #3" : [a] "+r"(a), "=@cceq"(*b));
 
 Windows Support
 ^^^^^^^^^^^^^^^
