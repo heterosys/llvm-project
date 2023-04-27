@@ -239,7 +239,9 @@ bool shouldInstrumentStack(const Triple &TargetTriple) {
 }
 
 bool shouldInstrumentWithCalls(const Triple &TargetTriple) {
-  return ClInstrumentWithCalls || TargetTriple.getArch() == Triple::x86_64;
+  return ClInstrumentWithCalls.getNumOccurrences()
+             ? ClInstrumentWithCalls
+             : TargetTriple.getArch() == Triple::x86_64;
 }
 
 bool mightUseStackSafetyAnalysis(bool DisableOptimization) {
@@ -994,7 +996,8 @@ void HWAddressSanitizer::tagAlloca(IRBuilder<> &IRB, AllocaInst *AI, Value *Tag,
                     ConstantInt::get(IntptrTy, AlignedSize)});
   } else {
     size_t ShadowSize = Size >> Mapping.Scale;
-    Value *ShadowPtr = memToShadow(IRB.CreatePointerCast(AI, IntptrTy), IRB);
+    Value *AddrLong = untagPointer(IRB, IRB.CreatePointerCast(AI, IntptrTy));
+    Value *ShadowPtr = memToShadow(AddrLong, IRB);
     // If this memset is not inlined, it will be intercepted in the hwasan
     // runtime library. That's OK, because the interceptor skips the checks if
     // the address is in the shadow region.
@@ -1070,7 +1073,12 @@ Value *HWAddressSanitizer::getAllocaTag(IRBuilder<> &IRB, Value *StackTag,
 }
 
 Value *HWAddressSanitizer::getUARTag(IRBuilder<> &IRB) {
-  return ConstantInt::get(IntptrTy, 0);
+  Value *StackPointerLong = getSP(IRB);
+  Value *UARTag =
+      applyTagMask(IRB, IRB.CreateLShr(StackPointerLong, PointerTagShift));
+
+  UARTag->setName("hwasan.uar.tag");
+  return UARTag;
 }
 
 // Add a tag to an address.
@@ -1100,12 +1108,12 @@ Value *HWAddressSanitizer::untagPointer(IRBuilder<> &IRB, Value *PtrLong) {
     // Kernel addresses have 0xFF in the most significant byte.
     UntaggedPtrLong =
         IRB.CreateOr(PtrLong, ConstantInt::get(PtrLong->getType(),
-                                               0xFFULL << PointerTagShift));
+                                               TagMaskByte << PointerTagShift));
   } else {
     // Userspace addresses have 0x00.
-    UntaggedPtrLong =
-        IRB.CreateAnd(PtrLong, ConstantInt::get(PtrLong->getType(),
-                                                ~(0xFFULL << PointerTagShift)));
+    UntaggedPtrLong = IRB.CreateAnd(
+        PtrLong, ConstantInt::get(PtrLong->getType(),
+                                  ~(TagMaskByte << PointerTagShift)));
   }
   return UntaggedPtrLong;
 }
