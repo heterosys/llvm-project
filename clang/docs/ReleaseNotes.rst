@@ -157,6 +157,8 @@ Non-comprehensive list of changes in this release
 - A new builtin type trait ``__is_trivially_equaltiy_comparable`` has been added,
   which checks whether comparing two instances of a type is equivalent to
   ``memcmp(&lhs, &rhs, sizeof(T)) == 0``.
+- Clang now ignores null directives outside of the include guard when deciding
+  whether a file can be enabled for the multiple-include optimization.
 
 New Compiler Flags
 ------------------
@@ -331,6 +333,9 @@ Bug Fixes in This Version
   constructor declaration.
   (`#62361 <https://github.com/llvm/llvm-project/issues/62361>`_)
   (`#62362 <https://github.com/llvm/llvm-project/issues/62362>`_)
+- Fix crash when attempting to perform parenthesized initialization of an
+  aggregate with a base class with only non-public constructors.
+  (`#62296 <https://github.com/llvm/llvm-project/issues/62296>`_)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -443,6 +448,8 @@ RISC-V Support
 - Fixed incorrect ABI lowering of ``_Float16`` in the case of structs
   containing ``_Float16`` that are eligible for passing via GPR+FPR or
   FPR+FPR.
+- Removed support for ``__attribute__((interrupt("user")))``. User-level
+  interrupts are not in version 1.12 of the privileged specification.
 
 CUDA/HIP Language Changes
 ^^^^^^^^^^^^^^^^^^^^^^^^^
