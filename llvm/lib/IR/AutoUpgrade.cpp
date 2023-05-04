@@ -4986,6 +4986,15 @@ std::string llvm::UpgradeDataLayoutString(StringRef DL, StringRef TT) {
     if (!DL.contains("-G") && !DL.starts_with("G"))
       Res.append(Res.empty() ? "G1" : "-G1");
 
+    // Add missing non-integral declarations.
+    // This goes before adding new address spaces to prevent incoherent string
+    // values.
+    if (!DL.contains("-ni") && !DL.startswith("ni"))
+      Res.append("-ni:7:8");
+    // Update ni:7 to ni:7:8.
+    if (DL.ends_with("ni:7"))
+      Res.append(":8");
+
     // Add sizing for address spaces 7 and 8 (fat raw buffers and buffer
     // resources) An empty data layout has already been upgraded to G1 by now.
     if (!DL.contains("-p7") && !DL.startswith("p7"))
@@ -4993,12 +5002,6 @@ std::string llvm::UpgradeDataLayoutString(StringRef DL, StringRef TT) {
     if (!DL.contains("-p8") && !DL.startswith("p8"))
       Res.append("-p8:128:128");
 
-    // Add missing non-integral declarations.
-    if (!DL.contains("-ni") && !DL.startswith("ni"))
-      Res.append("-ni:7:8");
-    // Update ni:7 to ni:7:8.
-    if (DL.ends_with("ni:7"))
-      Res.append(":8");
     return Res;
   }
 
