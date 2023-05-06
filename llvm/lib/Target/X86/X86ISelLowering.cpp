@@ -30219,17 +30219,6 @@ static SDValue LowerMINMAX(SDValue Op, const X86Subtarget &Subtarget,
   if (VT == MVT::v32i16 || VT == MVT::v64i8)
     return splitVectorIntBinary(Op, DAG);
 
-  // umax(x,1) --> sub(x,cmpeq(x,0))
-  // TODO: Move this to expandIntMINMAX?
-  if (VT.isVector() && Op.getOpcode() == ISD::UMAX &&
-      llvm::isOneOrOneSplat(Op.getOperand(1), true)) {
-    SDLoc DL(Op);
-    SDValue X = DAG.getFreeze(Op.getOperand(0));
-    SDValue Zero = getZeroVector(VT, Subtarget, DAG, DL);
-    return DAG.getNode(ISD::SUB, DL, VT, X,
-                       DAG.getSetCC(DL, VT, X, Zero, ISD::SETEQ));
-  }
-
   // Default to expand.
   return SDValue();
 }
@@ -33955,12 +33944,9 @@ static StringRef getInstrStrFromOpNo(const SmallVectorImpl<StringRef> &AsmStrs,
     // "call dword ptr "
     auto TmpStr = AsmStr.substr(0, I);
     I = TmpStr.rfind(':');
-    if (I == StringRef::npos)
-      return TmpStr;
-
-    assert(I < TmpStr.size() && "Unexpected inline asm string!");
-    auto Asm = TmpStr.drop_front(I + 1);
-    return Asm;
+    if (I != StringRef::npos)
+      TmpStr = TmpStr.substr(I + 1);
+    return TmpStr.take_while(llvm::isAlpha);
   }
 
   return StringRef();
@@ -33968,12 +33954,13 @@ static StringRef getInstrStrFromOpNo(const SmallVectorImpl<StringRef> &AsmStrs,
 
 bool X86TargetLowering::isInlineAsmTargetBranch(
     const SmallVectorImpl<StringRef> &AsmStrs, unsigned OpNo) const {
-  StringRef InstrStr = getInstrStrFromOpNo(AsmStrs, OpNo);
-
-  if (InstrStr.contains("call"))
-    return true;
-
-  return false;
+  // In a __asm block, __asm inst foo where inst is CALL or JMP should be
+  // changed from indirect TargetLowering::C_Memory to direct
+  // TargetLowering::C_Address.
+  // We don't need to special case LOOP* and Jcc, which cannot target a memory
+  // location.
+  StringRef Inst = getInstrStrFromOpNo(AsmStrs, OpNo);
+  return Inst.equals_insensitive("call") || Inst.equals_insensitive("jmp");
 }
 
 /// Provide custom lowering hooks for some operations.
