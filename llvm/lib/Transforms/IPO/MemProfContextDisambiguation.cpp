@@ -2231,21 +2231,6 @@ void CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::identifyClones(
     checkNode<DerivedCCG, FuncTy, CallTy>(Node);
 }
 
-static std::string getAllocTypeAttributeString(AllocationType Type) {
-  switch (Type) {
-  case AllocationType::NotCold:
-    return "notcold";
-    break;
-  case AllocationType::Cold:
-    return "cold";
-    break;
-  default:
-    dbgs() << "Unexpected alloc type " << (uint8_t)Type;
-    assert(false);
-  }
-  llvm_unreachable("invalid alloc type");
-}
-
 void ModuleCallsiteContextGraph::updateAllocationCall(
     CallInfo &Call, AllocationType AllocType) {
   std::string AllocTypeString = getAllocTypeAttributeString(AllocType);
@@ -3019,7 +3004,8 @@ bool MemProfContextDisambiguation::applyImport(Module &M) {
           auto MIBIter = AllocNode.MIBs.begin();
           for (auto &MDOp : MemProfMD->operands()) {
             assert(MIBIter != AllocNode.MIBs.end());
-            auto StackIdIndexIter = MIBIter->StackIdIndices.begin();
+            LLVM_ATTRIBUTE_UNUSED auto StackIdIndexIter =
+                MIBIter->StackIdIndices.begin();
             auto *MIBMD = cast<const MDNode>(MDOp);
             MDNode *StackMDNode = getMIBStackNode(MIBMD);
             assert(StackMDNode);
