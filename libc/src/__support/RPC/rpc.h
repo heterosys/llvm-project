@@ -37,6 +37,7 @@ enum Opcode : uint16_t {
   EXIT = 2,
   TEST_INCREMENT = 3,
   TEST_INTERFACE = 4,
+  TEST_STREAM = 5,
 };
 
 /// A fixed size channel used to communicate between the RPC client and server.
@@ -74,7 +75,7 @@ struct alignas(64) Packet {
 //       of thumb is that you should have at least as many ports as possible
 //       concurrent work items on the GPU to mitigate the lack offorward
 //       progress guarantees on the GPU.
-constexpr uint64_t default_port_count = 64;
+constexpr uint64_t DEFAULT_PORT_COUNT = 64;
 
 /// A common process used to synchronize communication between a client and a
 /// server. The process contains an inbox and an outbox used for signaling
@@ -111,16 +112,33 @@ template <bool InvertInbox> struct Process {
   cpp::Atomic<uint32_t> *outbox;
   Packet *packet;
 
-  cpp::Atomic<uint32_t> lock[default_port_count] = {0};
+  cpp::Atomic<uint32_t> lock[DEFAULT_PORT_COUNT] = {0};
 
   /// Initialize the communication channels.
-  LIBC_INLINE void reset(uint64_t port_count, uint32_t lane_size, void *inbox,
-                         void *outbox, void *packet) {
+  LIBC_INLINE void reset(uint64_t port_count, uint32_t lane_size, void *state) {
+    uint64_t p = memory_offset_primary_mailbox(port_count);
+    uint64_t s = memory_offset_secondary_mailbox(port_count);
     this->port_count = port_count;
     this->lane_size = lane_size;
-    this->inbox = reinterpret_cast<cpp::Atomic<uint32_t> *>(inbox);
-    this->outbox = reinterpret_cast<cpp::Atomic<uint32_t> *>(outbox);
-    this->packet = reinterpret_cast<Packet *>(packet);
+    this->inbox = reinterpret_cast<cpp::Atomic<uint32_t> *>(
+        static_cast<char *>(state) + (InvertInbox ? s : p));
+    this->outbox = reinterpret_cast<cpp::Atomic<uint32_t> *>(
+        static_cast<char *>(state) + (InvertInbox ? p : s));
+    this->packet = reinterpret_cast<Packet *>(static_cast<char *>(state) +
+                                              memory_offset_buffer(port_count));
+  }
+
+  /// Allocate a single block of memory for use by client and server
+  /// template<size_t N>, N is generally a runtime value
+  /// struct equivalent {
+  ///   atomic<uint32_t> primary[N];
+  ///   atomic<uint32_t> secondary[N];
+  ///   Packet buffer[N];
+  /// };
+  LIBC_INLINE static uint64_t allocation_size(uint64_t port_count,
+                                              uint32_t lane_size) {
+    return memory_offset_buffer(port_count) +
+           memory_allocated_buffer(port_count, lane_size);
   }
 
   /// The length of the packet is flexible because the server needs to look up
@@ -245,6 +263,34 @@ template <bool InvertInbox> struct Process {
           fn(&packet.payload.slot[i], i);
     }
   }
+
+  /// Number of bytes allocated for mailbox or buffer
+  LIBC_INLINE static uint64_t memory_allocated_mailbox(uint64_t port_count) {
+    return port_count * sizeof(cpp::Atomic<uint32_t>);
+  }
+
+  LIBC_INLINE static uint64_t memory_allocated_buffer(uint64_t port_count,
+                                                      uint32_t lane_size) {
+#if defined(LIBC_TARGET_ARCH_IS_GPU)
+    (void)lane_size;
+    return port_count * sizeof(Packet);
+#else
+    return port_count * (sizeof(Packet) + sizeof(Buffer) * lane_size);
+#endif
+  }
+
+  /// Offset of mailbox/buffer in single allocation
+  LIBC_INLINE static uint64_t
+  memory_offset_primary_mailbox(uint64_t /*port_count*/) {
+    return 0;
+  }
+  LIBC_INLINE static uint64_t
+  memory_offset_secondary_mailbox(uint64_t port_count) {
+    return memory_allocated_mailbox(port_count);
+  }
+  LIBC_INLINE static uint64_t memory_offset_buffer(uint64_t port_count) {
+    return align_up(2 * memory_allocated_mailbox(port_count), alignof(Packet));
+  }
 };
 
 /// The port provides the interface to communicate between the multiple
@@ -273,8 +319,10 @@ public:
   template <typename F, typename U>
   LIBC_INLINE void send_and_recv(F fill, U use);
   template <typename W> LIBC_INLINE void recv_and_send(W work);
+  LIBC_INLINE void send_n(const void *const *src, uint64_t *size);
   LIBC_INLINE void send_n(const void *src, uint64_t size);
-  template <typename A> LIBC_INLINE void recv_n(A alloc);
+  template <typename A>
+  LIBC_INLINE void recv_n(void **dst, uint64_t *size, A &&alloc);
 
   LIBC_INLINE uint16_t get_opcode() const {
     return process.get_packet(index).header.opcode;
@@ -379,22 +427,38 @@ LIBC_INLINE void Port<T>::recv_and_send(W work) {
 /// Sends an arbitrarily sized data buffer \p src across the shared channel in
 /// multiples of the packet length.
 template <bool T>
-LIBC_INLINE void Port<T>::send_n(const void *src, uint64_t size) {
+LIBC_INLINE void Port<T>::send_n(const void *const *src, uint64_t *size) {
   // TODO: We could send the first bytes in this call and potentially save an
   // extra send operation.
   // TODO: We may need a way for the CPU to send different strings per thread.
-  send([=](Buffer *buffer) {
-    reinterpret_cast<uint64_t *>(buffer->data)[0] = size;
+  uint64_t num_sends = 0;
+  send([&](Buffer *buffer, uint32_t id) {
+    reinterpret_cast<uint64_t *>(buffer->data)[0] = lane_value(size, id);
+    num_sends = is_process_gpu() ? lane_value(size, id)
+                                 : max(lane_value(size, id), num_sends);
   });
-  const uint8_t *ptr = reinterpret_cast<const uint8_t *>(src);
-  for (uint64_t idx = 0; idx < size; idx += sizeof(Buffer::data)) {
-    send([=](Buffer *buffer) {
-      const uint64_t len =
-          size - idx > sizeof(Buffer::data) ? sizeof(Buffer::data) : size - idx;
-      inline_memcpy(buffer->data, ptr + idx, len);
+  for (uint64_t idx = 0; idx < num_sends; idx += sizeof(Buffer::data)) {
+    send([=](Buffer *buffer, uint32_t id) {
+      const uint64_t len = lane_value(size, id) - idx > sizeof(Buffer::data)
+                               ? sizeof(Buffer::data)
+                               : lane_value(size, id) - idx;
+      if (idx < lane_value(size, id))
+        inline_memcpy(
+            buffer->data,
+            reinterpret_cast<const uint8_t *>(lane_value(src, id)) + idx, len);
     });
   }
   gpu::sync_lane(process.get_packet(index).header.mask);
+}
+
+/// Helper routine to simplify the interface when sending from the GPU using
+/// thread private pointers to the underlying value.
+template <bool T>
+LIBC_INLINE void Port<T>::send_n(const void *src, uint64_t size) {
+  static_assert(is_process_gpu(), "Only valid when running on the GPU");
+  const void **src_ptr = &src;
+  uint64_t *size_ptr = &size;
+  send_n(src_ptr, size_ptr);
 }
 
 /// Receives an arbitrarily sized data buffer across the shared channel in
@@ -402,44 +466,26 @@ LIBC_INLINE void Port<T>::send_n(const void *src, uint64_t size) {
 /// size of the data so that we can initialize the size of the \p dst buffer.
 template <bool T>
 template <typename A>
-LIBC_INLINE void Port<T>::recv_n(A alloc) {
-  // The GPU handles thread private variables and masking implicitly through its
-  // execution model. If this is the CPU we need to manually handle the
-  // possibility that the sent data is of different length.
-  if constexpr (is_process_gpu()) {
-    uint64_t size = 0;
-    recv([&](Buffer *buffer) {
-      size = reinterpret_cast<uint64_t *>(buffer->data)[0];
+LIBC_INLINE void Port<T>::recv_n(void **dst, uint64_t *size, A &&alloc) {
+  uint64_t num_recvs = 0;
+  recv([&](Buffer *buffer, uint32_t id) {
+    lane_value(size, id) = reinterpret_cast<uint64_t *>(buffer->data)[0];
+    lane_value(dst, id) =
+        reinterpret_cast<uint8_t *>(alloc(lane_value(size, id)));
+    num_recvs = is_process_gpu() ? lane_value(size, id)
+                                 : max(lane_value(size, id), num_recvs);
+  });
+  for (uint64_t idx = 0; idx < num_recvs; idx += sizeof(Buffer::data)) {
+    recv([=](Buffer *buffer, uint32_t id) {
+      uint64_t len = lane_value(size, id) - idx > sizeof(Buffer::data)
+                         ? sizeof(Buffer::data)
+                         : lane_value(size, id) - idx;
+      if (idx < lane_value(size, id))
+        inline_memcpy(reinterpret_cast<uint8_t *>(lane_value(dst, id)) + idx,
+                      buffer->data, len);
     });
-    uint8_t *dst = reinterpret_cast<uint8_t *>(alloc(size), gpu::get_lane_id());
-    for (uint64_t idx = 0; idx < size; idx += sizeof(Buffer::data)) {
-      recv([=](Buffer *buffer) {
-        uint64_t len = size - idx > sizeof(Buffer::data) ? sizeof(Buffer::data)
-                                                         : size - idx;
-        inline_memcpy(dst + idx, buffer->data, len);
-      });
-    }
-    return;
-  } else {
-    uint64_t size[MAX_LANE_SIZE];
-    uint8_t *dst[MAX_LANE_SIZE];
-    uint64_t max = 0;
-    recv([&](Buffer *buffer, uint32_t id) {
-      size[id] = reinterpret_cast<uint64_t *>(buffer->data)[0];
-      dst[id] = reinterpret_cast<uint8_t *>(alloc(size[id], id));
-      max = size[id] > max ? size[id] : max;
-    });
-    for (uint64_t idx = 0; idx < max; idx += sizeof(Buffer::data)) {
-      recv([=](Buffer *buffer, uint32_t id) {
-        uint64_t len = size[id] - idx > sizeof(Buffer::data)
-                           ? sizeof(Buffer::data)
-                           : size[id] - idx;
-        if (idx < size[id])
-          inline_memcpy(dst[id] + idx, buffer->data, len);
-      });
-    }
-    return;
   }
+  return;
 }
 
 /// Attempts to open a port to use as the client. The client can only open a
