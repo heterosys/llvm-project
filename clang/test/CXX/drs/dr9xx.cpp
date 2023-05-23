@@ -92,8 +92,10 @@ namespace dr974 { // dr974: yes
 
 namespace dr977 { // dr977: yes
 enum E { e = E() };
-// expected-error@-1 {{invalid use of incomplete type 'E'}}
-// expected-note@-2 {{definition of 'dr977::E' is not complete until the closing '}'}}
+#ifndef _WIN32
+// expected-error@-2 {{invalid use of incomplete type 'E'}}
+// expected-note@-3 {{definition of 'dr977::E' is not complete until the closing '}'}}
+#endif
 #if __cplusplus >= 201103L
 enum E2 : int { e2 = E2() };
 enum struct E3 { e = static_cast<int>(E3()) };
