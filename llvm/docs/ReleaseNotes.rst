@@ -61,6 +61,8 @@ Changes to the LLVM IR
 * The ``nofpclass`` attribute was introduced. This allows more
   optimizations around special floating point value comparisons.
 
+* Introduced new ``llvm.ldexp`` and ``llvm.experimental.constrained.ldexp`` intrinsics.
+
 * The constant expression variants of the following instructions have been
   removed:
 
@@ -93,6 +95,14 @@ Changes to the AArch64 Backend
 * Added Assembly Support for the 2022 A-profile extensions FEAT_GCS (Guarded
   Control Stacks), FEAT_CHK (Check Feature Status), and FEAT_ATS1A.
 * Support for preserve_all calling convention is added.
+* Added support for missing arch extensions in the assembly directives
+  ``.arch <level>+<ext>`` and ``.arch_extension``.
+* Fixed handling of ``.arch <level>`` in assembly, without using any ``+<ext>``
+  suffix. Previously this had no effect at all if no extensions were supplied.
+  Now ``.arch <level>`` can be used to enable all the extensions that are
+  included in a higher level than what is specified on the command line,
+  or for disabling unwanted extensions if setting it to a lower level.
+  This fixes `PR32873 <https://github.com/llvm/llvm-project/issues/32220>`.
 
 Changes to the AMDGPU Backend
 -----------------------------
@@ -335,6 +345,11 @@ Changes to Sanitizers
 
 Other Changes
 -------------
+
+* ``llvm::demangle`` now takes a ``std::string_view`` rather than a
+  ``const std::string&``. Be careful passing temporaries into
+  ``llvm::demangle`` that don't outlive the expression using
+  ``llvm::demangle``.
 
 External Open Source Projects Using LLVM 15
 ===========================================

@@ -1441,11 +1441,6 @@ SDValue AMDGPUTargetLowering::LowerEXTRACT_SUBVECTOR(SDValue Op,
     unsigned NumSrcElt = SrcVT.getVectorNumElements();
     assert(NumElt % 2 == 0 && NumSrcElt % 2 == 0 && "expect legal types");
 
-    // We have some TableGen patterns for when the extracted vector is exactly
-    // the low or high half of the operand.
-    if ((NumSrcElt == 2 * NumElt) && (Start == 0 || Start == NumElt))
-      return Op;
-
     // Extract 32-bit registers at a time.
     EVT NewSrcVT = EVT::getVectorVT(*DAG.getContext(), MVT::i32, NumSrcElt / 2);
     EVT NewVT = NumElt == 2
@@ -2618,7 +2613,7 @@ SDValue AMDGPUTargetLowering::LowerINT_TO_FP32(SDValue Op, SelectionDAG &DAG,
                       ShAmt);
   // On GCN, use LDEXP directly.
   if (Subtarget->isGCN())
-    return DAG.getNode(AMDGPUISD::LDEXP, SL, MVT::f32, FVal, ShAmt);
+    return DAG.getNode(ISD::FLDEXP, SL, MVT::f32, FVal, ShAmt);
 
   // Otherwise, align 'ShAmt' to the exponent part and add it into the exponent
   // part directly to emulate the multiplication of 2^ShAmt. That 8-bit
@@ -2651,7 +2646,7 @@ SDValue AMDGPUTargetLowering::LowerINT_TO_FP64(SDValue Op, SelectionDAG &DAG,
 
   SDValue CvtLo = DAG.getNode(ISD::UINT_TO_FP, SL, MVT::f64, Lo);
 
-  SDValue LdExp = DAG.getNode(AMDGPUISD::LDEXP, SL, MVT::f64, CvtHi,
+  SDValue LdExp = DAG.getNode(ISD::FLDEXP, SL, MVT::f64, CvtHi,
                               DAG.getConstant(32, SL, MVT::i32));
   // TODO: Should this propagate fast-math-flags?
   return DAG.getNode(ISD::FADD, SL, MVT::f64, LdExp, CvtLo);
@@ -4642,7 +4637,6 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(RCP_IFLAG)
   NODE_NAME_CASE(FMUL_LEGACY)
   NODE_NAME_CASE(RSQ_CLAMP)
-  NODE_NAME_CASE(LDEXP)
   NODE_NAME_CASE(FP_CLASS)
   NODE_NAME_CASE(DOT4)
   NODE_NAME_CASE(CARRY)
@@ -5049,7 +5043,7 @@ bool AMDGPUTargetLowering::isKnownNeverNaNForTargetNode(SDValue Op,
     // TODO: Need is known positive check.
     return false;
   }
-  case AMDGPUISD::LDEXP:
+  case ISD::FLDEXP:
   case AMDGPUISD::FRACT: {
     if (SNaN)
       return true;

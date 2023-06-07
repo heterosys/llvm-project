@@ -110,6 +110,7 @@ C++20 Feature Support
   unevaluated contexts will be surfaced as errors. They were previously handled as
   SFINAE.
 - Clang now supports `requires cplusplus20` for module maps.
+- Implemented missing parts of `P2002R1: Consistent comparison operators <https://wg21.link/P2002R1>`_
 
 C++23 Feature Support
 ^^^^^^^^^^^^^^^^^^^^^
@@ -267,7 +268,7 @@ Attribute Changes in Clang
   the compilation of the foreign language sources (e.g. Swift).
 - The ``__has_attribute``, ``__has_c_attribute`` and ``__has_cpp_attribute``
   preprocessor operators now return 1 also for attributes defined by plugins.
-- Improve the AST fidelity of ``alignas`` and ``_Alignas`` attribute. Before, we 
+- Improve the AST fidelity of ``alignas`` and ``_Alignas`` attribute. Before, we
   model ``alignas(type-id)`` as though the user wrote ``alignas(alignof(type-id))``,
   now we directly use ``alignas(type-id)``.
 
@@ -321,7 +322,7 @@ Improvements to Clang's diagnostics
   (`#62850: <https://github.com/llvm/llvm-project/issues/62850>`_).
 - Clang now warns when any predefined macro is undefined or redefined, instead
   of only some of them.
-- Clang now correctly diagnoses when the argument to ``alignas`` or ``_Alignas`` 
+- Clang now correctly diagnoses when the argument to ``alignas`` or ``_Alignas``
   is an incomplete type.
   (`#55175: <https://github.com/llvm/llvm-project/issues/55175>`_, and fixes an
   incorrect mention of ``alignof`` in a diagnostic about ``alignas``).
@@ -476,6 +477,11 @@ Bug Fixes in This Version
 - Fix crash when passing a braced initializer list to a parentehsized aggregate
   initialization expression.
   (`#63008 <https://github.com/llvm/llvm-project/issues/63008>`_).
+- Reject increment of bool value in unevaluated contexts after C++17.
+  (`#47517 <https://github.com/llvm/llvm-project/issues/47517>`_).
+- Fix assertion and quality of diagnostic messages in a for loop
+  containing multiple declarations and a range specifier
+  (`#63010 <https://github.com/llvm/llvm-project/issues/63010>`_).
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -534,6 +540,12 @@ Bug Fixes to C++ Support
   (`#62494 <https://github.com/llvm/llvm-project/issues/62494>`_)
 - Fix handling of generic lambda used as template arguments.
   (`#62611 <https://github.com/llvm/llvm-project/issues/62611>`_)
+- Allow omitting ``typename`` in the parameter declaration of a friend
+  constructor declaration.
+  (`#63119 <https://github.com/llvm/llvm-project/issues/63119>`_)
+- Fix access of a friend class declared in a local class. Clang previously
+  emitted an error when a friend of a local class tried to access it's
+  private data members.
 
 Bug Fixes to AST Handling
 ^^^^^^^^^^^^^^^^^^^^^^^^^
