@@ -66,10 +66,23 @@ Error AppleAcceleratorTable::extract() {
   HdrData.DIEOffsetBase = AccelSection.getU32(&Offset);
   uint32_t NumAtoms = AccelSection.getU32(&Offset);
 
+  HashDataEntryLength = 0;
+  auto MakeUnsupportedFormError = [](dwarf::Form Form) {
+    return createStringError(errc::not_supported,
+                             "Unsupported form:" +
+                                 dwarf::FormEncodingString(Form));
+  };
+
   for (unsigned i = 0; i < NumAtoms; ++i) {
     uint16_t AtomType = AccelSection.getU16(&Offset);
     auto AtomForm = static_cast<dwarf::Form>(AccelSection.getU16(&Offset));
     HdrData.Atoms.push_back(std::make_pair(AtomType, AtomForm));
+
+    std::optional<uint8_t> FormSize =
+        dwarf::getFixedFormByteSize(AtomForm, FormParams);
+    if (!FormSize)
+      return MakeUnsupportedFormError(AtomForm);
+    HashDataEntryLength += *FormSize;
   }
 
   IsValid = true;
@@ -207,6 +220,7 @@ LLVM_DUMP_METHOD void AppleAcceleratorTable::dump(raw_ostream &OS) const {
 
   W.printNumber("DIE offset base", HdrData.DIEOffsetBase);
   W.printNumber("Number of atoms", uint64_t(HdrData.Atoms.size()));
+  W.printNumber("Size of each hash data entry", getHashDataEntryLength());
   SmallVector<DWARFFormValue, 3> AtomForms;
   {
     ListScope AtomsScope(W, "Atoms");
@@ -263,18 +277,18 @@ AppleAcceleratorTable::Entry::Entry(
 
 void AppleAcceleratorTable::Entry::extract(
     const AppleAcceleratorTable &AccelTable, uint64_t *Offset) {
-  for (auto &Atom : Values)
-    Atom.extractValue(AccelTable.AccelSection, Offset, AccelTable.FormParams);
+  for (auto &FormValue : Values)
+    FormValue.extractValue(AccelTable.AccelSection, Offset,
+                           AccelTable.FormParams);
 }
 
 std::optional<DWARFFormValue>
-AppleAcceleratorTable::Entry::lookup(HeaderData::AtomType Atom) const {
+AppleAcceleratorTable::Entry::lookup(HeaderData::AtomType AtomToFind) const {
   assert(HdrData && "Dereferencing end iterator?");
   assert(HdrData->Atoms.size() == Values.size());
-  for (auto Tuple : zip_first(HdrData->Atoms, Values)) {
-    if (std::get<0>(Tuple).first == Atom)
-      return std::get<1>(Tuple);
-  }
+  for (auto [Atom, FormValue] : zip_equal(HdrData->Atoms, Values))
+    if (Atom.first == AtomToFind)
+      return FormValue;
   return std::nullopt;
 }
 

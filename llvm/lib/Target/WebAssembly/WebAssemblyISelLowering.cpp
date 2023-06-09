@@ -2767,7 +2767,8 @@ static SDValue performBitcastCombine(SDNode *N,
   if (DCI.isBeforeLegalize() && VT.isScalarInteger() &&
       SrcVT.isFixedLengthVector() && SrcVT.getScalarType() == MVT::i1) {
     unsigned NumElts = SrcVT.getVectorNumElements();
-    assert(NumElts == 2 || NumElts == 4 || NumElts == 8 || NumElts == 16);
+    if (NumElts != 2 && NumElts != 4 && NumElts != 8 && NumElts != 16)
+      return SDValue();
     EVT Width = MVT::getIntegerVT(128 / NumElts);
     return DAG.getZExtOrTrunc(
         DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
