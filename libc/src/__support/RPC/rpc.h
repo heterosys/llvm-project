@@ -137,8 +137,20 @@ protected:
   /// cheaper than calling load_outbox to get the value to store.
   LIBC_INLINE uint32_t invert_outbox(uint64_t index, uint32_t current_outbox) {
     uint32_t inverted_outbox = !current_outbox;
+    atomic_thread_fence(cpp::MemoryOrder::RELEASE);
     outbox[index].store(inverted_outbox, cpp::MemoryOrder::RELAXED);
     return inverted_outbox;
+  }
+
+  // Given the current outbox and inbox values, wait until the inbox changes
+  // to indicate that this thread owns the buffer element.
+  LIBC_INLINE void wait_for_ownership(uint64_t index, uint32_t outbox,
+                                      uint32_t in) {
+    while (buffer_unavailable(in, outbox)) {
+      sleep_briefly();
+      in = load_inbox(index);
+    }
+    atomic_thread_fence(cpp::MemoryOrder::ACQUIRE);
   }
 
   /// Determines if this process needs to wait for ownership of the buffer. We
@@ -184,13 +196,24 @@ protected:
     //
     // mask != packed implies at least one of the threads got the lock
     // atomic semantics of fetch_or mean at most one of the threads for the lock
-    return lane_mask != packed;
+
+    // If holding the lock then the caller can load values knowing said loads
+    // won't move past the lock. No such guarantee is needed if the lock acquire
+    // failed. This conditional branch is expected to fold in the caller after
+    // inlining the current function.
+    bool holding_lock = lane_mask != packed;
+    if (holding_lock)
+      atomic_thread_fence(cpp::MemoryOrder::ACQUIRE);
+    return holding_lock;
   }
 
   /// Unlock the lock at index. We need a lane sync to keep this function
   /// convergent, otherwise the compiler will sink the store and deadlock.
   [[clang::convergent]] LIBC_INLINE void unlock(uint64_t lane_mask,
                                                 uint64_t index) {
+    // Do not move any writes past the unlock
+    atomic_thread_fence(cpp::MemoryOrder::RELEASE);
+
     // Wait for other threads in the warp to finish using the lock
     gpu::sync_lane(lane_mask);
 
@@ -336,14 +359,10 @@ LIBC_INLINE void Port<T, S>::send(F fill) {
   uint32_t in = owns_buffer ? out ^ T : process.load_inbox(index);
 
   // We need to wait until we own the buffer before sending.
-  while (Process<T, S>::buffer_unavailable(in, out)) {
-    sleep_briefly();
-    in = process.load_inbox(index);
-  }
+  process.wait_for_ownership(index, out, in);
 
   // Apply the \p fill function to initialize the buffer and release the memory.
   process.invoke_rpc(fill, process.packet[index]);
-  atomic_thread_fence(cpp::MemoryOrder::RELEASE);
   out = process.invert_outbox(index, out);
   owns_buffer = false;
   receive = false;
@@ -363,11 +382,7 @@ LIBC_INLINE void Port<T, S>::recv(U use) {
   uint32_t in = owns_buffer ? out ^ T : process.load_inbox(index);
 
   // We need to wait until we own the buffer before receiving.
-  while (Process<T, S>::buffer_unavailable(in, out)) {
-    sleep_briefly();
-    in = process.load_inbox(index);
-  }
-  atomic_thread_fence(cpp::MemoryOrder::ACQUIRE);
+  process.wait_for_ownership(index, out, in);
 
   // Apply the \p use function to read the memory out of the buffer.
   process.invoke_rpc(use, process.packet[index]);
@@ -479,9 +494,6 @@ Client::try_open() {
     if (!this->try_lock(lane_mask, index))
       continue;
 
-    // The mailbox state must be read with the lock held.
-    atomic_thread_fence(cpp::MemoryOrder::ACQUIRE);
-
     uint32_t in = this->load_inbox(index);
     uint32_t out = this->load_outbox(index);
 
@@ -528,12 +540,8 @@ template <uint32_t lane_size>
 
     // Attempt to acquire the lock on this index.
     uint64_t lane_mask = gpu::get_lane_mask();
-    // Attempt to acquire the lock on this index.
     if (!this->try_lock(lane_mask, index))
       continue;
-
-    // The mailbox state must be read with the lock held.
-    atomic_thread_fence(cpp::MemoryOrder::ACQUIRE);
 
     in = this->load_inbox(index);
     out = this->load_outbox(index);
