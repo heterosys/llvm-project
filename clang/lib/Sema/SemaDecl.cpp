@@ -5716,10 +5716,10 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
       SC = SC_None;
     }
 
-    assert(DS.getAttributes().empty() && "No attribute expected");
     Anon = VarDecl::Create(Context, Owner, DS.getBeginLoc(),
                            Record->getLocation(), /*IdentifierInfo=*/nullptr,
                            Context.getTypeDeclType(Record), TInfo, SC);
+    ProcessDeclAttributes(S, Anon, Dc);
 
     // Default-initialize the implicit variable. This initialization will be
     // trivial in almost all cases, except if a union member has an in-class
@@ -6776,6 +6776,10 @@ Sema::ActOnTypedefNameDecl(Scope *S, DeclContext *DC, TypedefNameDecl *NewTD,
         break;
       case tok::InterestingIdentifierKind::ucontext_t:
         Context.setucontext_tDecl(NewTD);
+        break;
+      case tok::InterestingIdentifierKind::float_t:
+      case tok::InterestingIdentifierKind::double_t:
+        NewTD->addAttr(AvailableOnlyInDefaultEvalMethodAttr::Create(Context));
         break;
       default:
         break;
@@ -16000,8 +16004,14 @@ NamedDecl *Sema::ImplicitlyDefineFunction(SourceLocation Loc,
   while (!BlockScope->isCompoundStmtScope() && BlockScope->getParent())
     BlockScope = BlockScope->getParent();
 
+  // Loop until we find a DeclContext that is either a function/method or the
+  // translation unit, which are the only two valid places to implicitly define
+  // a function. This avoids accidentally defining the function within a tag
+  // declaration, for example.
   Scope *ContextScope = BlockScope;
-  while (!ContextScope->getEntity())
+  while (!ContextScope->getEntity() ||
+         (!ContextScope->getEntity()->isFunctionOrMethod() &&
+          !ContextScope->getEntity()->isTranslationUnit()))
     ContextScope = ContextScope->getParent();
   ContextRAII SavedContext(*this, ContextScope->getEntity());
 
@@ -16136,7 +16146,11 @@ void Sema::AddKnownFunctionAttributesForReplaceableGlobalAllocationFunction(
   //   indicates failure by returning a null pointer value. Any other allocation
   //   function never returns a null pointer value and indicates failure only by
   //   throwing an exception [...]
-  if (!IsNothrow && !FD->hasAttr<ReturnsNonNullAttr>())
+  //
+  // However, -fcheck-new invalidates this possible assumption, so don't add
+  // NonNull when that is enabled.
+  if (!IsNothrow && !FD->hasAttr<ReturnsNonNullAttr>() &&
+      !getLangOpts().CheckNew)
     FD->addAttr(ReturnsNonNullAttr::CreateImplicit(Context, FD->getLocation()));
 
   // C++2a [basic.stc.dynamic.allocation]p2:
