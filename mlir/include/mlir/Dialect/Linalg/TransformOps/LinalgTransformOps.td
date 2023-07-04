@@ -83,49 +83,30 @@ def BufferizeToAllocationOp : Op<Transform_Dialect,
      DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
      ReportTrackingListenerFailuresOpTrait]> {
   let description = [{
-    This transform materializes an allocation for the targeted tensor value. It
-    replaces all original uses of the target with the newly allocated buffer,
-    wrapped in a `bufferization.to_tensor` op. It returns a handle to the newly
-    allocated buffer. Furthermore, it returns a handle to the result of the
-    `to_tensor` op.
+    This transform bufferizes the targeted operation and materializes the
+    result in a new allocation. It replaces all original uses of the target
+    result with the newly allocated buffer, wrapped in a
+    `bufferization.to_tensor` op. It returns a handle to the newly allocated
+    buffer. Furthermore, it returns a handle to the result of the `to_tensor`
+    op.
 
-    Example:
-    ```
-    %0 = "some_op"() : () -> (tensor<10xf32>)
-    "some_use"(%0) : (tensor<10xf32>) -> ()
-    ```
-
-    Is rewritten to:
-    ```
-    %0 = "some_op"() : () -> (tensor<10xf32>)
-    %1 = memref.alloc() : memref<10xf32>
-    memref.tensor_store %0, %1 : memref<10xf32>
-    %2 = bufferization.to_tensor %1 restrict writable : memref<10xf32>
-    "some_use"(%2) : (tensor<10xf32>) -> ()
-    ```
-
-    This transform has optimized lowerings for certain targets that are results
-    of non-DPS ops. For such targets, not only a buffer allocation is emitted
-    but also the defining op is bufferized. This is to avoid a second
-    allocation for the missing destination of the non-DPS op (when subsequently
-    running a bufferization pass/transform). Currently supported ops with
-    optimized lowerings:
-    - tensor.pad
+    Only `tensor.pad` targets are supported at the moment.
+    - `tensor.pad` is lowered to an allocation, followed by a `linalg.fill` and
+      and a buffer copy (all on memrefs).
 
     An optional memory space attribute can be specified for the materialized
     buffer allocation.
 
     #### Return modes
 
-    This operation consumes the `target` handle and produces the `replacement`
-    and `allocated_buffer` handles. It always succeeds.
+    This operation consumes the `target` handle and produces the
+    `allocated_buffer` handle. It always succeeds.
   }];
 
-  let arguments = (ins Transform_AnyValue:$target,
+  let arguments = (ins TransformHandleTypeInterface:$target,
                        OptionalAttr<AnyAttr>:$memory_space);
-  let results = (outs Transform_AnyValue:$allocated_buffer,
-                      Transform_AnyValue:$replacement);
-  let assemblyFormat = "$target attr-dict";
+  let results = (outs Transform_AnyValue:$allocated_buffer);
+  let assemblyFormat = "$target attr-dict `:` type($target)";
 }
 
 //===----------------------------------------------------------------------===//
@@ -891,17 +872,19 @@ def PackTransposeOp : Op<Transform_Dialect, "structured.pack_transpose", [
 
 def PadOp : Op<Transform_Dialect, "structured.pad",
     [FunctionalStyleTransformOpTrait, MemoryEffectsOpInterface,
-     TransformOpInterface, TransformEachOpTrait,
+     DeclareOpInterfaceMethods<TransformOpInterface>,
      ReportTrackingListenerFailuresOpTrait]> {
   let description = [{
     Pads the operations pointed to by the target handle using the options
-    provides as operation attributes.
+    provides as operation attributes. The operation returns a handle to the
+    padded operation and to the padding operation ("tensor.pad").
 
     #### Return modes
 
     This operation ignores non-Linalg ops and drops them in the return.
     This operation may produce a definiteFailure if the padding fails for any
     reason.
+
     If all the operations referred to by the `target` handle pad
     properly, the transform succeeds. Otherwise the transform silently fails.
     The return handle points to only the subset of successfully produced
@@ -918,11 +901,11 @@ def PadOp : Op<Transform_Dialect, "structured.pad",
           TypedArrayAttrBase<I64ArrayAttr, "array of arrays of i64">,
           "{}">:$transpose_paddings,
          DefaultValuedAttr<BoolAttr, "true">:$copy_back);
-  let results = (outs TransformHandleTypeInterface:$transformed);
+  let results = (outs TransformHandleTypeInterface:$padded,
+                      TransformHandleTypeInterface:$pad);
 
   let assemblyFormat =
-    "$target attr-dict `:` "
-    "custom<SemiFunctionType>(type($target), type($transformed))";
+    "$target attr-dict `:` functional-type(operands, results)";
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
@@ -1686,7 +1669,7 @@ def TileOp : Op<Transform_Dialect, "structured.tile",
                    Variadic<TransformParamTypeOrAnyHandle>:$dynamic_sizes,
                    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$static_sizes,
                    DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:$interchange,
-                   DefaultValuedOptionalAttr<DenseBoolArrayAttr, "{}">:$scalable_sizes);
+                   DefaultValuedOptionalAttr<BoolAttr, "false">:$last_tile_size_scalable);
   let results = (outs TransformHandleTypeInterface:$tiled_linalg_op,
                       Variadic<TransformHandleTypeInterface>:$loops);
   let builders = [
@@ -2008,10 +1991,9 @@ def MaskedVectorizeOp : Op<Transform_Dialect, "structured.masked_vectorize",
   let arguments = (ins TransformHandleTypeInterface:$target,
                        Variadic<TransformHandleTypeInterface>:$vector_sizes,
                        UnitAttr:$vectorize_nd_extract,
-                       DefaultValuedOptionalAttr<DenseBoolArrayAttr, "{}">:
-                          $scalable_sizes,
                        DefaultValuedOptionalAttr<DenseI64ArrayAttr, "{}">:
-                          $static_vector_sizes);
+                          $static_vector_sizes,
+                       DefaultValuedOptionalAttr<BoolAttr, "false">:$last_vector_size_scalable);
 
   let results = (outs);
   let assemblyFormat = [{
@@ -2019,7 +2001,7 @@ def MaskedVectorizeOp : Op<Transform_Dialect, "structured.masked_vectorize",
       `vector_sizes` custom<DynamicIndexList>($vector_sizes,
                                               $static_vector_sizes,
                                               type($vector_sizes),
-                                              $scalable_sizes)
+                                              $last_vector_size_scalable)
       attr-dict
       `:` type($target)
   }];

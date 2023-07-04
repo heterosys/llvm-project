@@ -656,6 +656,30 @@ TEST(TransferTest, SelfReferentialPointerVarDecl) {
       });
 }
 
+TEST(TransferTest, DirectlySelfReferentialReference) {
+  std::string Code = R"(
+    struct target {
+      target() {
+        (void)0;
+        // [[p]]
+      }
+      target &self = *this;
+    };
+  )";
+  runDataflow(
+      Code,
+      [](const llvm::StringMap<DataflowAnalysisState<NoopLattice>> &Results,
+         ASTContext &ASTCtx) {
+        const Environment &Env = getEnvironmentAtAnnotation(Results, "p");
+        const ValueDecl *SelfDecl = findValueDecl(ASTCtx, "self");
+
+        auto *ThisLoc = Env.getThisPointeeStorageLocation();
+        auto *RefVal =
+            cast<ReferenceValue>(Env.getValue(ThisLoc->getChild(*SelfDecl)));
+        ASSERT_EQ(&RefVal->getReferentLoc(), ThisLoc);
+      });
+}
+
 TEST(TransferTest, MultipleVarsDecl) {
   std::string Code = R"(
     void target() {
@@ -5544,6 +5568,42 @@ TEST(TransferTest, AnonymousStructWithInitializer) {
 
         auto *B = cast<BoolValue>(Env.getValue(AnonStruct.getChild(*BDecl)));
         ASSERT_TRUE(Env.flowConditionImplies(*B));
+      });
+}
+
+TEST(TransferTest, AnonymousStructWithReferenceField) {
+  std::string Code = R"(
+    int global_i = 0;
+    struct target {
+      target() {
+        (void)0;
+        // [[p]]
+      }
+      struct {
+        int &i = global_i;
+      };
+    };
+  )";
+  runDataflow(
+      Code,
+      [](const llvm::StringMap<DataflowAnalysisState<NoopLattice>> &Results,
+         ASTContext &ASTCtx) {
+        const Environment &Env = getEnvironmentAtAnnotation(Results, "p");
+        const ValueDecl *GlobalIDecl = findValueDecl(ASTCtx, "global_i");
+        const ValueDecl *IDecl = findValueDecl(ASTCtx, "i");
+        const IndirectFieldDecl *IndirectField =
+            findIndirectFieldDecl(ASTCtx, "i");
+
+        auto *ThisLoc =
+            cast<AggregateStorageLocation>(Env.getThisPointeeStorageLocation());
+        auto &AnonStruct = cast<AggregateStorageLocation>(ThisLoc->getChild(
+            *cast<ValueDecl>(IndirectField->chain().front())));
+
+        auto *RefVal =
+            cast<ReferenceValue>(Env.getValue(AnonStruct.getChild(*IDecl)));
+
+        ASSERT_EQ(&RefVal->getReferentLoc(),
+                  Env.getStorageLocation(*GlobalIDecl));
       });
 }
 
