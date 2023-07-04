@@ -90,9 +90,30 @@ def BufferizeToAllocationOp : Op<Transform_Dialect,
     buffer. Furthermore, it returns a handle to the result of the `to_tensor`
     op.
 
-    Only `tensor.pad` targets are supported at the moment.
+    Only bufferizable ops are that bufferize to a memory write or have an
+    aliasing OpOperand (and do not themselves bufferize to an allocation) are
+    supported. They are bufferized using their BufferizableOpInterface
+    implementation. E.g.:
+
+    ```
+    %0 = tensor.insert %f into %dest[%pos] : tensor<10xf32>
+    ```
+
+    Is bufferized to:
+
+    ```
+    %alloc = memref.alloc() : memref<10xf32>
+    memref.tensor_store %dest, %alloc : memref<10xf32>
+    memref.store %f, %alloc[%pos] : memref<10xf32>
+    %0 = bufferization.to_tensor %alloc restrict writable : memref<10xf32>
+    ```
+
+    Selected ops that bufferize to an allocation (or need special handling) are
+    also supported:
     - `tensor.pad` is lowered to an allocation, followed by a `linalg.fill` and
       and a buffer copy (all on memrefs).
+    - `vector.mask` is bufferized together with its region. The allocation is
+      placed in front of the `vector.mask` op.
 
     An optional memory space attribute can be specified for the materialized
     buffer allocation.
