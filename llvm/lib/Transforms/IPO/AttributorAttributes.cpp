@@ -957,10 +957,8 @@ ChangeStatus AA::PointerInfo::State::addAccess(
   }
 
   auto AddToBins = [&](const AAPointerInfo::RangeList &ToAdd) {
-    LLVM_DEBUG(
-      if (ToAdd.size())
-        dbgs() << "[AAPointerInfo] Inserting access in new offset bins\n";
-    );
+    LLVM_DEBUG(if (ToAdd.size()) dbgs()
+                   << "[AAPointerInfo] Inserting access in new offset bins\n";);
 
     for (auto Key : ToAdd) {
       LLVM_DEBUG(dbgs() << "    key " << Key << "\n");
@@ -993,10 +991,8 @@ ChangeStatus AA::PointerInfo::State::addAccess(
   // from the offset bins.
   AAPointerInfo::RangeList ToRemove;
   AAPointerInfo::RangeList::set_difference(ExistingRanges, NewRanges, ToRemove);
-  LLVM_DEBUG(
-    if (ToRemove.size())
-      dbgs() << "[AAPointerInfo] Removing access from old offset bins\n";
-  );
+  LLVM_DEBUG(if (ToRemove.size()) dbgs()
+                 << "[AAPointerInfo] Removing access from old offset bins\n";);
 
   for (auto Key : ToRemove) {
     LLVM_DEBUG(dbgs() << "    key " << Key << "\n");
@@ -2038,6 +2034,7 @@ struct AANoUnwindImpl : AANoUnwind {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::NoUnwind>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   const std::string getAsStr(Attributor *A) const override {
@@ -2422,6 +2419,7 @@ struct AANoSyncImpl : AANoSync {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::NoSync>(A, nullptr, getIRPosition(),
                                                     DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   const std::string getAsStr(Attributor *A) const override {
@@ -2502,6 +2500,7 @@ struct AANoFreeImpl : public AANoFree {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::NoFree>(A, nullptr, getIRPosition(),
                                                     DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -2939,6 +2938,7 @@ struct AAMustProgressImpl : public AAMustProgress {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::MustProgress>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   /// See AbstractAttribute::getAsStr()
@@ -3021,6 +3021,7 @@ struct AANoRecurseImpl : public AANoRecurse {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::NoRecurse>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   /// See AbstractAttribute::getAsStr()
@@ -3114,7 +3115,8 @@ struct AANonConvergentFunction final : AANonConvergentImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    // If all function calls are known to not be convergent, we are not convergent.
+    // If all function calls are known to not be convergent, we are not
+    // convergent.
     auto CalleeIsNotConvergent = [&](Instruction &Inst) {
       CallBase &CB = cast<CallBase>(Inst);
       auto *Callee = dyn_cast_if_present<Function>(CB.getCalledOperand());
@@ -3528,6 +3530,7 @@ struct AAWillReturnImpl : public AAWillReturn {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::WillReturn>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   /// Check for `mustprogress` and `readonly` as they imply `willreturn`.
@@ -3741,8 +3744,9 @@ struct CachedReachabilityAA : public BaseTy {
       QueryCache.erase(&RQI);
 
     // Insert a plain RQI (w/o exclusion set) if that makes sense. Two options:
-    // 1) If it is reachable, it doesn't matter if we have an exclusion set for this query.
-    // 2) We did not use the exclusion set, potentially because there is none.
+    // 1) If it is reachable, it doesn't matter if we have an exclusion set for
+    // this query. 2) We did not use the exclusion set, potentially because
+    // there is none.
     if (Result == RQITy::Reachable::Yes || !UsedExclusionSet) {
       RQITy PlainRQI(RQI.From, RQI.To);
       if (!QueryCache.count(&PlainRQI)) {
@@ -5659,6 +5663,7 @@ struct AANoReturnImpl : public AANoReturn {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::NoReturn>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   /// See AbstractAttribute::getAsStr().
@@ -5992,6 +5997,7 @@ struct AANoCaptureImpl : public AANoCapture {
     bool IsKnown;
     assert(!AA::hasAssumedIRAttr<Attribute::NoCapture>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
+    (void)IsKnown;
   }
 
   /// See AbstractAttribute::updateImpl(...).
@@ -8289,8 +8295,8 @@ struct AAMemoryBehaviorCallSite final : AAMemoryBehaviorImpl {
       ME = MemoryEffects::writeOnly();
 
     A.removeAttrs(getIRPosition(), AttrKinds);
-    return A.manifestAttrs(getIRPosition(),
-                           Attribute::getWithMemoryEffects(CB.getContext(), ME));
+    return A.manifestAttrs(
+        getIRPosition(), Attribute::getWithMemoryEffects(CB.getContext(), ME));
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -8658,9 +8664,8 @@ struct AAMemoryLocationImpl : public AAMemoryLocation {
       return ChangeStatus::UNCHANGED;
     MemoryEffects ME = DeducedAttrs[0].getMemoryEffects();
 
-    return A.manifestAttrs(
-        IRP,
-        Attribute::getWithMemoryEffects(IRP.getAnchorValue().getContext(), ME));
+    return A.manifestAttrs(IRP, Attribute::getWithMemoryEffects(
+                                    IRP.getAnchorValue().getContext(), ME));
   }
 
   /// See AAMemoryLocation::checkForAllAccessesToMemoryKind(...).
@@ -8912,8 +8917,11 @@ AAMemoryLocationImpl::categorizeAccessedLocations(Attributor &A, Instruction &I,
         *this, IRPosition::callsite_function(*CB), DepClassTy::OPTIONAL);
     LLVM_DEBUG(dbgs() << "[AAMemoryLocation] Categorize call site: " << I
                       << " [" << CBMemLocationAA << "]\n");
-    if (!CBMemLocationAA)
+    if (!CBMemLocationAA) {
+      updateStateAndAccessesMap(AccessedLocs, NO_UNKOWN_MEM, &I, nullptr,
+                                Changed, getAccessKindFromInst(&I));
       return NO_UNKOWN_MEM;
+    }
 
     if (CBMemLocationAA->isAssumedReadNone())
       return NO_LOCATIONS;
@@ -12012,7 +12020,7 @@ struct AAUnderlyingObjectsFunction final : AAUnderlyingObjectsImpl {
   AAUnderlyingObjectsFunction(const IRPosition &IRP, Attributor &A)
       : AAUnderlyingObjectsImpl(IRP, A) {}
 };
-}
+} // namespace
 
 const char AAReturnedValues::ID = 0;
 const char AANoUnwind::ID = 0;

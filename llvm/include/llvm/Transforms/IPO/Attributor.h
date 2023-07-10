@@ -152,7 +152,6 @@ struct AAIsDead;
 struct AttributorCallGraph;
 struct IRPosition;
 
-class AAResults;
 class Function;
 
 /// Abstract Attribute helper functions.
@@ -1126,7 +1125,8 @@ struct AnalysisGetter {
   // allow partial specialization, which is needed in this case. So instead, we
   // use a constexpr bool to perform the SFINAE, and then use this information
   // inside the function template.
-  template <typename, typename = void> static constexpr bool HasLegacyWrapper = false;
+  template <typename, typename = void>
+  static constexpr bool HasLegacyWrapper = false;
 
   template <typename Analysis>
   typename Analysis::Result *getAnalysis(const Function &F,
@@ -1169,7 +1169,7 @@ private:
 
 template <typename Analysis>
 constexpr bool AnalysisGetter::HasLegacyWrapper<
-      Analysis, std::void_t<typename Analysis::LegacyWrapper>> = true;
+    Analysis, std::void_t<typename Analysis::LegacyWrapper>> = true;
 
 /// Data structure to hold cached (LLVM-IR) information.
 ///
@@ -3126,6 +3126,11 @@ template <Attribute::AttrKind AK, typename BaseType, typename AAType>
 struct IRAttribute : public BaseType {
   IRAttribute(const IRPosition &IRP) : BaseType(IRP) {}
 
+  /// Most boolean IRAttribute AAs don't do anything non-trivial
+  /// in their initializers while non-boolean ones often do. Subclasses can
+  /// change this.
+  static bool hasTrivialInitializer() { return Attribute::isEnumAttrKind(AK); }
+
   /// Compile time access to the IR attribute kind.
   static constexpr Attribute::AttrKind IRAttributeKind = AK;
 
@@ -3147,15 +3152,6 @@ struct IRAttribute : public BaseType {
       return true;
     return A.hasAttr(IRP, {ImpliedAttributeKind}, IgnoreSubsumingPositions,
                      ImpliedAttributeKind);
-  }
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override {
-    const IRPosition &IRP = this->getIRPosition();
-    if (AAType::isImpliedByIR(A, IRP, AK)) {
-      this->getState().indicateOptimisticFixpoint();
-      return;
-    }
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -3558,6 +3554,9 @@ struct AANonNull
                          StateWrapper<BooleanState, AbstractAttribute>,
                          AANonNull> {
   AANonNull(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+
+  /// See AbstractAttribute::hasTrivialInitializer.
+  static bool hasTrivialInitializer() { return false; }
 
   /// See IRAttribute::isImpliedByUndef.
   /// Undef is not necessarily nonnull as nonnull + noundef would cause poison.
@@ -4528,6 +4527,9 @@ struct AAMemoryBehavior
           AAMemoryBehavior> {
   AAMemoryBehavior(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
 
+  /// See AbstractAttribute::hasTrivialInitializer.
+  static bool hasTrivialInitializer() { return false; }
+
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
     if (!IRP.isFunctionScope() &&
@@ -4601,6 +4603,9 @@ struct AAMemoryLocation
   using MemoryLocationsKind = StateType::base_t;
 
   AAMemoryLocation(const IRPosition &IRP, Attributor &A) : IRAttribute(IRP) {}
+
+  /// See AbstractAttribute::hasTrivialInitializer.
+  static bool hasTrivialInitializer() { return false; }
 
   /// See AbstractAttribute::isValidIRPositionForInit
   static bool isValidIRPositionForInit(Attributor &A, const IRPosition &IRP) {
@@ -5519,7 +5524,8 @@ struct AANonConvergent : public StateWrapper<BooleanState, AbstractAttribute> {
   AANonConvergent(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
   /// Create an abstract attribute view for the position \p IRP.
-  static AANonConvergent &createForPosition(const IRPosition &IRP, Attributor &A);
+  static AANonConvergent &createForPosition(const IRPosition &IRP,
+                                            Attributor &A);
 
   /// Return true if "non-convergent" is assumed.
   bool isAssumedNotConvergent() const { return getAssumed(); }
@@ -5533,7 +5539,8 @@ struct AANonConvergent : public StateWrapper<BooleanState, AbstractAttribute> {
   /// See AbstractAttribute::getIdAddr()
   const char *getIdAddr() const override { return &ID; }
 
-  /// This function should return true if the type of the \p AA is AANonConvergent.
+  /// This function should return true if the type of the \p AA is
+  /// AANonConvergent.
   static bool classof(const AbstractAttribute *AA) {
     return (AA->getIdAddr() == &ID);
   }
