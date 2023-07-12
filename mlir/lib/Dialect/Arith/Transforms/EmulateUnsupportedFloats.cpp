@@ -81,9 +81,8 @@ void EmulateFloatPattern::rewrite(Operation *op, ArrayRef<Value> operands,
   Location loc = op->getLoc();
   TypeConverter *converter = getTypeConverter();
   SmallVector<Type> resultTypes;
-  assert(
-      succeeded(converter->convertTypes(op->getResultTypes(), resultTypes)) &&
-      "type conversions shouldn't fail in this pass");
+  LogicalResult pass = converter->convertTypes(op->getResultTypes(), resultTypes);
+  (void) pass;
   Operation *expandedOp =
       rewriter.create(loc, op->getName().getIdentifier(), operands, resultTypes,
                       op->getAttrs(), op->getSuccessors(), /*regions=*/{});
