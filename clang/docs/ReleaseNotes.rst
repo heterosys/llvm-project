@@ -441,6 +441,9 @@ Improvements to Clang's diagnostics
 - ``-Wformat`` will no longer suggest a no-op fix-it for fixing scoped enum format
   warnings. Instead, it will suggest casting the enum object to the type specified
   in the format string.
+- Clang now emits ``-Wconstant-logical-operand`` warning even when constant logical
+  operand is on left side.
+  (`#37919 <https://github.com/llvm/llvm-project/issues/37919>`_)
 
 Bug Fixes in This Version
 -------------------------
@@ -810,6 +813,10 @@ X86 Support
 
 - Add ISA of ``AMX-COMPLEX`` which supports ``tcmmimfp16ps`` and
   ``tcmmrlfp16ps``.
+- Support ISA of ``SHA512``.
+  * Support intrinsic of ``_mm256_sha512msg1_epi64``.
+  * Support intrinsic of ``_mm256_sha512msg2_epi64``.
+  * Support intrinsic of ``_mm256_sha512rnds2_epi64``.
 
 Arm and AArch64 Support
 ^^^^^^^^^^^^^^^^^^^^^^^
