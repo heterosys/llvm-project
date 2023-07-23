@@ -277,6 +277,9 @@ New Compiler Flags
 Deprecated Compiler Flags
 -------------------------
 
+- ``-fdouble-square-bracket-attributes`` has been deprecated. It is ignored now
+  and will be removed in Clang 18.
+
 Modified Compiler Flags
 -----------------------
 
@@ -406,6 +409,10 @@ Improvements to Clang's diagnostics
   (`#57081: <https://github.com/llvm/llvm-project/issues/57081>`_)
 - Clang no longer emits inappropriate notes about the loss of ``__unaligned`` qualifier
   on overload resolution, when the actual reason for the failure is loss of other qualifiers.
+- The note emitted when an ``operator==`` was defaulted as deleted used to refer to
+  the lack of a data member's "three-way comparison operator". It now refers correctly
+  to the data member's ``operator==``.
+  (`#63960: <https://github.com/llvm/llvm-project/issues/63960>`_)
 - Clang's notes about unconvertible types in overload resolution failure now covers
   the source range of parameter declaration of the candidate function declaration.
 
