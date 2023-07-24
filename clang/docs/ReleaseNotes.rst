@@ -84,6 +84,7 @@ C++ Language Changes
   directly rather than instantiating the definition from the standard library.
 - Implemented `CWG2518 <https://wg21.link/CWG2518>`_ which allows ``static_assert(false)``
   to not be ill-formed when its condition is evaluated in the context of a template definition.
+- Declaring namespace std to be an inline namespace is now prohibited, `[namespace.std]p7`.
 
 C++20 Feature Support
 ^^^^^^^^^^^^^^^^^^^^^
@@ -670,6 +671,15 @@ Bug Fixes in This Version
 - Correcly diagnose jumps into statement expressions.
   This ensures the behavior of Clang is consistent with GCC.
   (`#63682 <https://github.com/llvm/llvm-project/issues/63682>`_)
+- Invalidate BlockDecl with implicit return type, in case any of the return
+  value exprs is invalid. Propagating the error info up by replacing BlockExpr
+  with a RecoveryExpr. This fixes:
+  (`#63863 <https://github.com/llvm/llvm-project/issues/63863>_`)
+- Invalidate BlockDecl with invalid ParmVarDecl. Remove redundant dump of
+  BlockDecl's ParmVarDecl
+  (`#64005 <https://github.com/llvm/llvm-project/issues/64005>_`)
+- Fix crash on nested templated class with template function call.
+  (`#61159 <https://github.com/llvm/llvm-project/issues/61159>_`)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -951,6 +961,7 @@ Floating Point Support in Clang
 - Add ``__builtin_elementwise_exp`` builtin for floating point types only.
 - Add ``__builtin_elementwise_exp2`` builtin for floating point types only.
 - Add ``__builtin_set_flt_rounds`` builtin for X86, x86_64, Arm and AArch64 only.
+- Add ``__builtin_elementwise_pow`` builtin for floating point types only.
 
 AST Matchers
 ------------
@@ -1002,9 +1013,72 @@ libclang
 
 Static Analyzer
 ---------------
+
 - Fix incorrect alignment attribute on the this parameter of certain
   non-complete destructors when using the Microsoft ABI.
   (`#60465 <https://github.com/llvm/llvm-project/issues/60465>`_)
+
+- Removed the deprecated
+  ``consider-single-element-arrays-as-flexible-array-members`` analyzer option.
+  Any use of this flag will result in an error.
+  Use `-fstrict-flex-arrays=<n>
+  <https://clang.llvm.org/docs/ClangCommandLineReference.html#cmdoption-clang-fstrict-flex-arrays>`_
+
+- Better modeling of lifetime-extended memory regions. As a result, the
+  ``MoveChecker`` raises more true-positive reports.
+
+- Fixed some bugs (including crashes) around the handling of constant global
+  arrays and their initializer expressions.
+
+- The ``CStringChecker`` will invalidate less if the copy operation is
+  inferable to be bounded. For example, if the arguments of ``strcpy`` are
+  known to be of certain lengths and that are in-bounds.
+
+   .. code-block:: c++
+
+    struct {
+      void *ptr;
+      char arr[4];
+    } x;
+    x.ptr = malloc(1);
+    // extent of 'arr' is 4, and writing "hi\n" (4 characters),
+    // thus no buffer overflow can happen
+    strcpy(x.arr, "hi\n");
+    free(x.ptr); // no longer reports memory leak here
+
+  Similarly, functions like ``strsep`` now won't invalidate the object
+  containing the destination buffer, because it can never overflow.
+  Note that, ``std::copy`` is still not modeled, and as such, it will still
+  invalidate the enclosing object on call.
+  (`#55019 <https://github.com/llvm/llvm-project/issues/55019>`_)
+
+- Implement ``BufferOverlap`` check for ``sprint``/``snprintf``
+  The ``CStringChecker`` checks for buffer overlaps for ``sprintf`` and
+  ``snprintf``.
+
+- Objective-C support was improved around checking ``_Nonnull`` and
+  ``_Nullable`` including block pointers and literal objects.
+
+- Let the ``StreamChecker`` detect ``NULL`` streams instead of by
+  ``StdCLibraryFunctions``.
+  ``StreamChecker`` improved on the ``fseek`` modeling for the ``SEEK_SET``,
+  ``SEEK_END``, ``SEEK_CUR`` arguments.
+
+- ``StdCLibraryFunctionArgs`` was merged into the ``StdCLibraryFunctions``.
+  The diagnostics of the ``StdCLibraryFunctions`` was improved.
+
+- ``QTimer::singleShot`` now doesn't raise false-positives for memory leaks by
+  the ``MallocChecker``.
+  (`#39713 <https://github.com/llvm/llvm-project/issues/39713>`_)
+
+- Fixed the infamous unsigned index false-positives in the
+  ``ArrayBoundCheckerV2`` checker.
+  (`#44493 <https://github.com/llvm/llvm-project/issues/44493>`_)
+
+- Now, taint propagations are tracked further back until the real taint source.
+  This improves all taint-related diagnostics.
+
+- Fixed a null-pointer dereference crash inside the ``MoveChecker``.
 
 .. _release-notes-sanitizers:
 
