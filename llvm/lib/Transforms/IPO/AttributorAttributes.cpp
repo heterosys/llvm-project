@@ -2200,8 +2200,15 @@ ChangeStatus AANoSyncImpl::updateImpl(Attributor &A) {
     if (I.mayReadOrWriteMemory())
       return true;
 
+    bool IsKnown;
+    CallBase &CB = cast<CallBase>(I);
+    if (AA::hasAssumedIRAttr<Attribute::NoSync>(
+            A, this, IRPosition::callsite_function(CB), DepClassTy::OPTIONAL,
+            IsKnown))
+      return true;
+
     // non-convergent and readnone imply nosync.
-    return !cast<CallBase>(I).isConvergent();
+    return !CB.isConvergent();
   };
 
   bool UsedAssumedInformation = false;
@@ -10583,10 +10590,12 @@ struct AAInterFnReachabilityFunction
 
     // Determine call like instructions that we can reach from the inst.
     auto CheckCallBase = [&](Instruction &CBInst) {
-      if (!IntraFnReachability || !IntraFnReachability->isAssumedReachable(
-                                      A, *RQI.From, CBInst, RQI.ExclusionSet))
+      // There are usually less nodes in the call graph, check inter function
+      // reachability first.
+      if (CheckReachableCallBase(cast<CallBase>(&CBInst)))
         return true;
-      return CheckReachableCallBase(cast<CallBase>(&CBInst));
+      return IntraFnReachability && !IntraFnReachability->isAssumedReachable(
+                                        A, *RQI.From, CBInst, RQI.ExclusionSet);
     };
 
     bool UsedExclusionSet = /* conservative */ true;
@@ -11272,12 +11281,12 @@ struct AAPotentialValuesArgument final : AAPotentialValuesImpl {
   ChangeStatus updateImpl(Attributor &A) override {
     auto AssumedBefore = getAssumed();
 
-    unsigned CSArgNo = getCallSiteArgNo();
+    unsigned ArgNo = getCalleeArgNo();
 
     bool UsedAssumedInformation = false;
     SmallVector<AA::ValueAndContext> Values;
     auto CallSitePred = [&](AbstractCallSite ACS) {
-      const auto CSArgIRP = IRPosition::callsite_argument(ACS, CSArgNo);
+      const auto CSArgIRP = IRPosition::callsite_argument(ACS, ArgNo);
       if (CSArgIRP.getPositionKind() == IRP_INVALID)
         return false;
 
