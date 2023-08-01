@@ -876,36 +876,85 @@ constexpr int ignoredDecls() {
 }
 static_assert(ignoredDecls() == 12, "");
 
-struct A{};
-constexpr int ignoredExprs() {
-  (void)(1 / 2);
-  A a;
-  a; // expected-warning {{unused}} \
-     // ref-warning {{unused}}
-  (void)a;
-  (a); // expected-warning {{unused}} \
-       // ref-warning {{unused}}
+namespace DiscardExprs {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-value"
 
-  (void)5, (void)6;
+  struct A{ int a; };
+  constexpr int ignoredExprs() {
+    (void)(1 / 2);
+    A a;
+    a;
+    (void)a;
+    (a);
 
-  1 ? 0 : 1; // expected-warning {{unused}} \
-             // ref-warning {{unused}}
+    /// Ignored MaterializeTemporaryExpr.
+    struct B{ const int &a; };
+    (void)B{12};
 
-  return 0;
-}
+    (void)5, (void)6;
 
-/// Ignored comma expressions still have their
-/// expressions evaluated.
-constexpr int Comma(int start) {
-    int i = start;
+    1 ? 0 : 1;
+    __is_trivial(int);
 
-    (void)i++;
-    (void)i++,(void)i++;
+    (int){1};
+    (int[]){1,2,3};
+    int arr[] = {1,2,3};
+    arr[0];
+    "a";
+    'b';
+
+    return 0;
+  }
+
+  constexpr int oh_my(int x) {
+    (int){ x++ };
+    return x;
+  }
+  static_assert(oh_my(0) == 1, "");
+
+  constexpr int oh_my2(int x) {
+    int y{x++};
+    return x;
+  }
+
+  static_assert(oh_my2(0) == 1, "");
+
+
+  /// Ignored comma expressions still have their
+  /// expressions evaluated.
+  constexpr int Comma(int start) {
+      int i = start;
+
+      (void)i++;
+      (void)i++,(void)i++;
+      return i;
+  }
+  constexpr int Value = Comma(5);
+  static_assert(Value == 8, "");
+
+  /// Ignored MemberExprs need to still evaluate the Base
+  /// expr.
+  constexpr A callme(int &i) {
+    ++i;
+    return A{};
+  }
+  constexpr int ignoredMemberExpr() {
+    int i = 0;
+    callme(i).a;
     return i;
-}
-constexpr int Value = Comma(5);
-static_assert(Value == 8, "");
+  }
+  static_assert(ignoredMemberExpr() == 1, "");
 
+  template <int I>
+  constexpr int foo() {
+    I;
+    return I;
+  }
+  static_assert(foo<3>() == 3, "");
+
+#pragma clang diagnostic pop
+}
 #endif
 
 namespace PredefinedExprs {
