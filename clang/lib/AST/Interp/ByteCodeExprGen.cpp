@@ -144,10 +144,14 @@ bool ByteCodeExprGen<Emitter>::VisitCastExpr(const CastExpr *CE) {
   case CK_NoOp:
   case CK_UserDefinedConversion:
   case CK_BitCast:
+    if (DiscardResult)
+      return this->discard(SubExpr);
     return this->visit(SubExpr);
 
   case CK_IntegralToBoolean:
   case CK_IntegralCast: {
+      if (DiscardResult)
+        return this->discard(SubExpr);
     std::optional<PrimType> FromT = classify(SubExpr->getType());
     std::optional<PrimType> ToT = classify(CE->getType());
     if (!FromT || !ToT)
@@ -163,14 +167,16 @@ bool ByteCodeExprGen<Emitter>::VisitCastExpr(const CastExpr *CE) {
   }
 
   case CK_PointerToBoolean: {
+    PrimType PtrT = classifyPrim(SubExpr->getType());
+
     // Just emit p != nullptr for this.
     if (!this->visit(SubExpr))
       return false;
 
-    if (!this->emitNullPtr(CE))
+    if (!this->emitNull(PtrT, CE))
       return false;
 
-    return this->emitNEPtr(CE);
+    return this->emitNE(PtrT, CE);
   }
 
   case CK_ToVoid:
@@ -528,6 +534,9 @@ bool ByteCodeExprGen<Emitter>::VisitUnaryExprOrTypeTraitExpr(
       Size = ASTCtx.getTypeSizeInChars(ArgType);
     }
 
+    if (DiscardResult)
+      return true;
+
     return this->emitConst(Size.getQuantity(), E);
   }
 
@@ -557,6 +566,9 @@ bool ByteCodeExprGen<Emitter>::VisitUnaryExprOrTypeTraitExpr(
       else
         Size = AlignOfType(Arg->getType(), ASTCtx, Kind);
     }
+
+    if (DiscardResult)
+      return true;
 
     return this->emitConst(Size.getQuantity(), E);
   }

@@ -376,6 +376,9 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FP_EXTEND, MVT::f32, Custom);
     setOperationAction(ISD::FP_EXTEND, MVT::f64, Custom);
     setOperationAction(ISD::ConstantFP, MVT::bf16, Expand);
+    setOperationAction(ISD::SELECT_CC, MVT::bf16, Expand);
+    setOperationAction(ISD::SELECT, MVT::bf16, Promote);
+    setOperationAction(ISD::SETCC, MVT::bf16, Promote);
   }
 
   if (Subtarget.hasStdExtZfhOrZfhminOrZhinxOrZhinxmin()) {
@@ -4670,12 +4673,18 @@ static SDValue lowerFMAXIMUM_FMINIMUM(SDValue Op, SelectionDAG &DAG,
   // ensures that when one input is a nan, the other will also be a nan allowing
   // the nan to propagate. If both inputs are nan, this will swap the inputs
   // which is harmless.
-  // FIXME: Handle nonans FMF and use isKnownNeverNaN.
-  SDValue XIsNonNan = DAG.getSetCC(DL, XLenVT, X, X, ISD::SETOEQ);
-  SDValue NewY = DAG.getSelect(DL, VT, XIsNonNan, Y, X);
 
-  SDValue YIsNonNan = DAG.getSetCC(DL, XLenVT, Y, Y, ISD::SETOEQ);
-  SDValue NewX = DAG.getSelect(DL, VT, YIsNonNan, X, Y);
+  SDValue NewY = Y;;
+  if (!Op->getFlags().hasNoNaNs() && !DAG.isKnownNeverNaN(X)) {
+    SDValue XIsNonNan = DAG.getSetCC(DL, XLenVT, X, X, ISD::SETOEQ);
+    NewY = DAG.getSelect(DL, VT, XIsNonNan, Y, X);
+  }
+
+  SDValue NewX = X;
+  if (!Op->getFlags().hasNoNaNs() && !DAG.isKnownNeverNaN(Y)) {
+    SDValue YIsNonNan = DAG.getSetCC(DL, XLenVT, Y, Y, ISD::SETOEQ);
+    NewX = DAG.getSelect(DL, VT, YIsNonNan, X, Y);
+  }
 
   unsigned Opc =
       Op.getOpcode() == ISD::FMAXIMUM ? RISCVISD::FMAX : RISCVISD::FMIN;
@@ -4721,8 +4730,6 @@ static unsigned getRISCVVLOp(SDValue Op) {
   OP_CASE(SMAX)
   OP_CASE(UMIN)
   OP_CASE(UMAX)
-  OP_CASE(FMINNUM)
-  OP_CASE(FMAXNUM)
   OP_CASE(STRICT_FADD)
   OP_CASE(STRICT_FSUB)
   OP_CASE(STRICT_FMUL)
@@ -4746,8 +4753,6 @@ static unsigned getRISCVVLOp(SDValue Op) {
   VP_CASE(SMAX)       // VP_SMAX
   VP_CASE(UMIN)       // VP_UMIN
   VP_CASE(UMAX)       // VP_UMAX
-  VP_CASE(FMINNUM)    // VP_FMINNUM
-  VP_CASE(FMAXNUM)    // VP_FMAXNUM
   VP_CASE(FCOPYSIGN)  // VP_FCOPYSIGN
   VP_CASE(SETCC)      // VP_SETCC
   VP_CASE(SINT_TO_FP) // VP_SINT_TO_FP
@@ -4799,6 +4804,12 @@ static unsigned getRISCVVLOp(SDValue Op) {
     return RISCVISD::VFCVT_RTZ_X_F_VL;
   case ISD::VP_FP_TO_UINT:
     return RISCVISD::VFCVT_RTZ_XU_F_VL;
+  case ISD::FMINNUM:
+  case ISD::VP_FMINNUM:
+    return RISCVISD::VFMIN_VL;
+  case ISD::FMAXNUM:
+  case ISD::VP_FMAXNUM:
+    return RISCVISD::VFMAX_VL;
   }
   // clang-format on
 #undef OP_CASE
@@ -4815,7 +4826,7 @@ static bool hasMergeOp(unsigned Opcode) {
                  ISD::FIRST_TARGET_STRICTFP_OPCODE ==
              21 &&
          "adding target specific op should update this function");
-  if (Opcode >= RISCVISD::ADD_VL && Opcode <= RISCVISD::FMAXNUM_VL)
+  if (Opcode >= RISCVISD::ADD_VL && Opcode <= RISCVISD::VFMAX_VL)
     return true;
   if (Opcode == RISCVISD::FCOPYSIGN_VL)
     return true;
@@ -6065,6 +6076,10 @@ SDValue RISCVTargetLowering::lowerSELECT(SDValue Op, SelectionDAG &DAG) const {
           ISD::OR, DL, VT, FalseV,
           DAG.getNode(RISCVISD::CZERO_EQZ, DL, VT, TrueV, CondV));
 
+    // Try some other optimizations before falling back to generic lowering.
+    if (SDValue V = combineSelectToBinOp(Op.getNode(), DAG, Subtarget))
+      return V;
+
     // (select c, t, f) -> (or (czero_eqz t, c), (czero_nez f, c))
     return DAG.getNode(ISD::OR, DL, VT,
                        DAG.getNode(RISCVISD::CZERO_EQZ, DL, VT, TrueV, CondV),
@@ -7180,6 +7195,14 @@ static SDValue lowerGetVectorLength(SDNode *N, SelectionDAG &DAG,
   return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, XLenVT, ID, AVL, Sew, LMul);
 }
 
+// LMUL * VLEN should be greater than or equal to EGS * SEW
+static inline bool isValidEGW(int EGS, EVT VT,
+                              const RISCVSubtarget &Subtarget) {
+  return (Subtarget.getRealMinVLen() *
+             VT.getSizeInBits().getKnownMinValue()) / RISCV::RVVBitsPerBlock >=
+         EGS * VT.getScalarSizeInBits();
+}
+
 SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
                                                      SelectionDAG &DAG) const {
   unsigned IntNo = Op.getConstantOperandVal(0);
@@ -7299,6 +7322,48 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
                      DAG.getUNDEF(MaskVT), Mask, VL});
     return DAG.getNode(RISCVISD::VSELECT_VL, DL, VT, SelectCond, SplattedVal,
                        Vec, VL);
+  }
+  // EGS * EEW >= 128 bits
+  case Intrinsic::riscv_vaesdf_vv:
+  case Intrinsic::riscv_vaesdf_vs:
+  case Intrinsic::riscv_vaesdm_vv:
+  case Intrinsic::riscv_vaesdm_vs:
+  case Intrinsic::riscv_vaesef_vv:
+  case Intrinsic::riscv_vaesef_vs:
+  case Intrinsic::riscv_vaesem_vv:
+  case Intrinsic::riscv_vaesem_vs:
+  case Intrinsic::riscv_vaeskf1:
+  case Intrinsic::riscv_vaeskf2:
+  case Intrinsic::riscv_vaesz_vs:
+  case Intrinsic::riscv_vsm4k:
+  case Intrinsic::riscv_vsm4r_vv:
+  case Intrinsic::riscv_vsm4r_vs: {
+    if (!isValidEGW(4, Op.getSimpleValueType(), Subtarget) ||
+        !isValidEGW(4, Op->getOperand(1).getSimpleValueType(), Subtarget) ||
+        !isValidEGW(4, Op->getOperand(2).getSimpleValueType(), Subtarget))
+      report_fatal_error("EGW should be greater than or equal to 4 * SEW.");
+    return Op;
+  }
+  // EGS * EEW >= 256 bits
+  case Intrinsic::riscv_vsm3c:
+  case Intrinsic::riscv_vsm3me: {
+    if (!isValidEGW(8, Op.getSimpleValueType(), Subtarget) ||
+        !isValidEGW(8, Op->getOperand(1).getSimpleValueType(), Subtarget))
+      report_fatal_error("EGW should be greater than or equal to 8 * SEW.");
+    return Op;
+  }
+  // zvknha(SEW=32)/zvknhb(SEW=[32|64])
+  case Intrinsic::riscv_vsha2ch:
+  case Intrinsic::riscv_vsha2cl:
+  case Intrinsic::riscv_vsha2ms: {
+    if (Op->getSimpleValueType(0).getScalarSizeInBits() == 64 &&
+        !Subtarget.hasStdExtZvknhb())
+      report_fatal_error("SEW=64 needs Zvknhb to be enabled.");
+    if (!isValidEGW(4, Op.getSimpleValueType(), Subtarget) ||
+        !isValidEGW(4, Op->getOperand(1).getSimpleValueType(), Subtarget) ||
+        !isValidEGW(4, Op->getOperand(2).getSimpleValueType(), Subtarget))
+      report_fatal_error("EGW should be greater than or equal to 4 * SEW.");
+    return Op;
   }
   }
 
@@ -12406,9 +12471,13 @@ static SDValue tryFoldSelectIntoOp(SDNode *N, SelectionDAG &DAG,
                                    SDValue TrueVal, SDValue FalseVal,
                                    bool Swapped) {
   bool Commutative = true;
-  switch (TrueVal.getOpcode()) {
+  unsigned Opc = TrueVal.getOpcode();
+  switch (Opc) {
   default:
     return SDValue();
+  case ISD::SHL:
+  case ISD::SRA:
+  case ISD::SRL:
   case ISD::SUB:
     Commutative = false;
     break;
@@ -12431,12 +12500,18 @@ static SDValue tryFoldSelectIntoOp(SDNode *N, SelectionDAG &DAG,
 
   EVT VT = N->getValueType(0);
   SDLoc DL(N);
-  SDValue Zero = DAG.getConstant(0, DL, VT);
   SDValue OtherOp = TrueVal.getOperand(1 - OpToFold);
+  EVT OtherOpVT = OtherOp->getValueType(0);
+  SDValue IdentityOperand =
+      DAG.getNeutralElement(Opc, DL, OtherOpVT, N->getFlags());
+  if (!Commutative)
+    IdentityOperand = DAG.getConstant(0, DL, OtherOpVT);
+  assert(IdentityOperand && "No identity operand!");
 
   if (Swapped)
-    std::swap(OtherOp, Zero);
-  SDValue NewSel = DAG.getSelect(DL, VT, N->getOperand(0), OtherOp, Zero);
+    std::swap(OtherOp, IdentityOperand);
+  SDValue NewSel =
+      DAG.getSelect(DL, OtherOpVT, N->getOperand(0), OtherOp, IdentityOperand);
   return DAG.getNode(TrueVal.getOpcode(), DL, VT, FalseVal, NewSel);
 }
 
@@ -16254,8 +16329,8 @@ const char *RISCVTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(CTLZ_VL)
   NODE_NAME_CASE(CTTZ_VL)
   NODE_NAME_CASE(CTPOP_VL)
-  NODE_NAME_CASE(FMINNUM_VL)
-  NODE_NAME_CASE(FMAXNUM_VL)
+  NODE_NAME_CASE(VFMIN_VL)
+  NODE_NAME_CASE(VFMAX_VL)
   NODE_NAME_CASE(MULHS_VL)
   NODE_NAME_CASE(MULHU_VL)
   NODE_NAME_CASE(VFCVT_RTZ_X_F_VL)
@@ -16727,6 +16802,22 @@ getIntrinsicForMaskedAtomicRMWBinOp(unsigned XLen, AtomicRMWInst::BinOp BinOp) {
 Value *RISCVTargetLowering::emitMaskedAtomicRMWIntrinsic(
     IRBuilderBase &Builder, AtomicRMWInst *AI, Value *AlignedAddr, Value *Incr,
     Value *Mask, Value *ShiftAmt, AtomicOrdering Ord) const {
+  // In the case of an atomicrmw xchg with a constant 0/-1 operand, replace
+  // the atomic instruction with an AtomicRMWInst::And/Or with appropriate
+  // mask, as this produces better code than the LR/SC loop emitted by
+  // int_riscv_masked_atomicrmw_xchg.
+  if (AI->getOperation() == AtomicRMWInst::Xchg &&
+      isa<ConstantInt>(AI->getValOperand())) {
+    ConstantInt *CVal = cast<ConstantInt>(AI->getValOperand());
+    if (CVal->isZero())
+      return Builder.CreateAtomicRMW(AtomicRMWInst::And, AlignedAddr,
+                                     Builder.CreateNot(Mask, "Inv_Mask"),
+                                     AI->getAlign(), Ord);
+    if (CVal->isMinusOne())
+      return Builder.CreateAtomicRMW(AtomicRMWInst::Or, AlignedAddr, Mask,
+                                     AI->getAlign(), Ord);
+  }
+
   unsigned XLen = Subtarget.getXLen();
   Value *Ordering =
       Builder.getIntN(XLen, static_cast<uint64_t>(AI->getOrdering()));
@@ -17079,6 +17170,49 @@ bool RISCVTargetLowering::allowsMisalignedMemoryAccesses(
   if (Fast)
     *Fast = Subtarget.enableUnalignedVectorMem();
   return Subtarget.enableUnalignedVectorMem();
+}
+
+
+EVT RISCVTargetLowering::getOptimalMemOpType(const MemOp &Op,
+                                             const AttributeList &FuncAttributes) const {
+  if (!Subtarget.hasVInstructions())
+    return MVT::Other;
+
+  if (FuncAttributes.hasFnAttr(Attribute::NoImplicitFloat))
+    return MVT::Other;
+
+  // We use LMUL1 memory operations here for a non-obvious reason.  Our caller
+  // has an expansion threshold, and we want the number of hardware memory
+  // operations to correspond roughly to that threshold.  LMUL>1 operations
+  // are typically expanded linearly internally, and thus correspond to more
+  // than one actual memory operation.  Note that store merging and load
+  // combining will typically form larger LMUL operations from the LMUL1
+  // operations emitted here, and that's okay because combining isn't
+  // introducing new memory operations; it's just merging existing ones.
+  const unsigned MinVLenInBytes = Subtarget.getRealMinVLen()/8;
+  if (Op.size() < MinVLenInBytes)
+    // TODO: Figure out short memops.  For the moment, do the default thing
+    // which ends up using scalar sequences.
+    return MVT::Other;
+
+  // Prefer i8 for non-zero memset as it allows us to avoid materializing
+  // a large scalar constant and instead use vmv.v.x/i to do the
+  // broadcast.  For everything else, prefer ELenVT to minimize VL and thus
+  // maximize the chance we can encode the size in the vsetvli.
+  MVT ELenVT = MVT::getIntegerVT(Subtarget.getELEN());
+  MVT PreferredVT = (Op.isMemset() && !Op.isZeroMemset()) ? MVT::i8 : ELenVT;
+
+  // Do we have sufficient alignment for our preferred VT?  If not, revert
+  // to largest size allowed by our alignment criteria.
+  if (PreferredVT != MVT::i8 && !Subtarget.enableUnalignedVectorMem()) {
+    Align RequiredAlign(PreferredVT.getStoreSize());
+    if (Op.isFixedDstAlign())
+      RequiredAlign = std::min(RequiredAlign, Op.getDstAlign());
+    if (Op.isMemcpy())
+      RequiredAlign = std::min(RequiredAlign, Op.getSrcAlign());
+    PreferredVT = MVT::getIntegerVT(RequiredAlign.value() * 8);
+  }
+  return MVT::getVectorVT(PreferredVT, MinVLenInBytes/PreferredVT.getStoreSize());
 }
 
 bool RISCVTargetLowering::splitValueIntoRegisterParts(
