@@ -92,6 +92,10 @@ C++2c Feature Support
 
 Resolutions to C++ Defect Reports
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+- Implemented `CWG1473 <https://wg21.link/CWG1473>`_ which allows spaces after ``operator""``.
+  Clang used to err on the lack of space when the literal suffix identifier was invalid in
+  all the language modes, which contradicted the deprecation of the whitespaces.
+  Also turn on ``-Wdeprecated-literal-operator`` by default in all the language modes.
 
 C Language Changes
 ------------------
@@ -148,6 +152,10 @@ Bug Fixes in This Version
 - Fix a hang on valid C code passing a function type as an argument to
   ``typeof`` to form a function declaration.
   (`#64713 <https://github.com/llvm/llvm-project/issues/64713>_`)
+- Clang now respects ``-fwrapv`` and ``-ftrapv`` for ``__builtin_abs`` and
+  ``abs`` builtins.
+  (`#45129 <https://github.com/llvm/llvm-project/issues/45129>`_,
+  `#45794 <https://github.com/llvm/llvm-project/issues/45794>`_)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -279,6 +287,9 @@ Static Analyzer
 
 Sanitizers
 ----------
+- ``-fsanitize=signed-integer-overflow`` now instruments ``__builtin_abs`` and
+  ``abs`` builtins.
+
 
 Python Binding Changes
 ----------------------
