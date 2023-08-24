@@ -46,6 +46,8 @@ C++ Specific Potentially Breaking Changes
 
 ABI Changes in This Version
 ---------------------------
+- Following the SystemV ABI for x86-64, ``__int128`` arguments will no longer
+  be split between a register and a stack slot.
 
 What's New in Clang |release|?
 ==============================
@@ -92,10 +94,6 @@ C++2c Feature Support
 
 Resolutions to C++ Defect Reports
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-- Implemented `CWG1473 <https://wg21.link/CWG1473>`_ which allows spaces after ``operator""``.
-  Clang used to err on the lack of space when the literal suffix identifier was invalid in
-  all the language modes, which contradicted the deprecation of the whitespaces.
-  Also turn on ``-Wdeprecated-literal-operator`` by default in all the language modes.
 
 C Language Changes
 ------------------
@@ -154,6 +152,20 @@ Bug Fixes in This Version
 - Fix a hang on valid C code passing a function type as an argument to
   ``typeof`` to form a function declaration.
   (`#64713 <https://github.com/llvm/llvm-project/issues/64713>_`)
+- Clang now reports missing-field-initializers warning for missing designated
+  initializers in C++.
+  (`#56628 <https://github.com/llvm/llvm-project/issues/56628>`_)
+- Clang now respects ``-fwrapv`` and ``-ftrapv`` for ``__builtin_abs`` and
+  ``abs`` builtins.
+  (`#45129 <https://github.com/llvm/llvm-project/issues/45129>`_,
+  `#45794 <https://github.com/llvm/llvm-project/issues/45794>`_)
+- Fixed an issue where accesses to the local variables of a coroutine during
+  ``await_suspend`` could be misoptimized, including accesses to the awaiter
+  object itself.
+  (`#56301 <https://github.com/llvm/llvm-project/issues/56301>`_)
+  The current solution may bring performance regressions if the awaiters have
+  non-static data members. See
+  `#64945 <https://github.com/llvm/llvm-project/issues/64945>`_ for details.
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -289,6 +301,9 @@ Static Analyzer
 
 Sanitizers
 ----------
+
+- ``-fsanitize=signed-integer-overflow`` now instruments ``__builtin_abs`` and
+  ``abs`` builtins.
 
 Python Binding Changes
 ----------------------

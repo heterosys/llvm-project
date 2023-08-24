@@ -4638,10 +4638,6 @@ The following is the syntax for constant expressions:
     Perform a logical right shift on constants.
 ``ashr (LHS, RHS)``
     Perform an arithmetic right shift on constants.
-``and (LHS, RHS)``
-    Perform a bitwise and on constants.
-``or (LHS, RHS)``
-    Perform a bitwise or on constants.
 ``xor (LHS, RHS)``
     Perform a bitwise xor on constants.
 
@@ -5599,7 +5595,10 @@ DIFile
 
 Files are sometimes used in ``scope:`` fields, and are the only valid target
 for ``file:`` fields.
-Valid values for ``checksumkind:`` field are: {CSK_None, CSK_MD5, CSK_SHA1, CSK_SHA256}
+
+The ``checksum:`` and ``checksumkind:`` fields are optional. If one of these
+fields is present, then the other is required to be present as well. Valid
+values for ``checksumkind:`` field are: {CSK_MD5, CSK_SHA1, CSK_SHA256}
 
 .. _DIBasicType:
 
