@@ -1150,7 +1150,7 @@ void SubtargetEmitter::GenSchedClassTables(const CodeGenProcModel &ProcModel,
         // Create an entry for each ProcResource listed in WriteRes.
         RecVec PRVec = WriteRes->getValueAsListOfDefs("ProcResources");
         std::vector<int64_t> ReleaseAtCycles =
-          WriteRes->getValueAsListOfInts("ReleaseAtCycles");
+            WriteRes->getValueAsListOfInts("ReleaseAtCycles");
 
         std::vector<int64_t> AcquireAtCycles =
             WriteRes->getValueAsListOfInts("AcquireAtCycles");
