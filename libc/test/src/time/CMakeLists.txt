@@ -107,17 +107,12 @@ add_libc_unittest(
     libc.src.time.mktime
 )
 
-add_libc_unittest(
+add_libc_test(
   nanosleep_test
   SUITE
     libc_time_unittests
   SRCS
     nanosleep_test.cpp
-  HDRS
-    TmHelper.h
-    TmMatcher.h
-  CXX_STANDARD
-    20
   DEPENDS
     libc.include.time
     libc.src.time.nanosleep
@@ -136,7 +131,7 @@ add_libc_unittest(
     libc.src.errno.errno
 )
 
-add_libc_unittest(
+add_libc_test(
   clock_test
   SUITE
     libc_time_unittests
