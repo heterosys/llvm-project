@@ -222,6 +222,10 @@ static cl::opt<bool> ClInlineAllChecks("hwasan-inline-all-checks",
                                        cl::desc("inline all checks"),
                                        cl::Hidden, cl::init(false));
 
+static cl::opt<bool> ClInlineFastPathChecks("hwasan-inline-fast-path-checks",
+                                            cl::desc("inline all checks"),
+                                            cl::Hidden, cl::init(false));
+
 // Enabled from clang by "-fsanitize-hwaddress-experimental-aliasing".
 static cl::opt<bool> ClUsePageAliases("hwasan-experimental-use-page-aliases",
                                       cl::desc("Use page aliasing in HWASan"),
@@ -372,6 +376,7 @@ private:
   bool CompileKernel;
   bool Recover;
   bool OutlinedChecks;
+  bool InlineFastPath;
   bool UseShortGranules;
   bool InstrumentLandingPads;
   bool InstrumentWithCalls;
@@ -578,6 +583,13 @@ void HWAddressSanitizer::initializeModule() {
       (TargetTriple.isAArch64() || TargetTriple.isRISCV64()) &&
       TargetTriple.isOSBinFormatELF() &&
       (ClInlineAllChecks.getNumOccurrences() ? !ClInlineAllChecks : !Recover);
+
+  InlineFastPath =
+      (ClInlineFastPathChecks.getNumOccurrences()
+           ? ClInlineFastPathChecks
+           : !(TargetTriple.isAndroid() ||
+               TargetTriple.isOSFuchsia())); // These platforms may prefer less
+                                             // inlining to reduce binary size.
 
   if (ClMatchAllTag.getNumOccurrences()) {
     if (ClMatchAllTag != -1) {
@@ -845,6 +857,11 @@ void HWAddressSanitizer::instrumentMemAccessOutline(Value *Ptr, bool IsWrite,
   assert(!UsePageAliases);
   const int64_t AccessInfo = getAccessInfo(IsWrite, AccessSizeIndex);
   IRBuilder<> IRB(InsertBefore);
+
+  if (InlineFastPath) {
+    // TODO.
+  }
+
   Module *M = IRB.GetInsertBlock()->getParent()->getParent();
   Ptr = IRB.CreateBitCast(Ptr, Int8PtrTy);
   IRB.CreateCall(Intrinsic::getDeclaration(
@@ -875,33 +892,33 @@ void HWAddressSanitizer::instrumentMemAccessInline(Value *Ptr, bool IsWrite,
     TagMismatch = IRB.CreateAnd(TagMismatch, TagNotIgnored);
   }
 
-  Instruction *CheckTerm =
+  Instruction *TagMismatchTerm =
       SplitBlockAndInsertIfThen(TagMismatch, InsertBefore, false,
                                 MDBuilder(*C).createBranchWeights(1, 100000));
 
-  IRB.SetInsertPoint(CheckTerm);
+  IRB.SetInsertPoint(TagMismatchTerm);
   Value *OutOfShortGranuleTagRange =
       IRB.CreateICmpUGT(MemTag, ConstantInt::get(Int8Ty, 15));
-  Instruction *CheckFailTerm =
-      SplitBlockAndInsertIfThen(OutOfShortGranuleTagRange, CheckTerm, !Recover,
-                                MDBuilder(*C).createBranchWeights(1, 100000));
+  Instruction *CheckFailTerm = SplitBlockAndInsertIfThen(
+      OutOfShortGranuleTagRange, TagMismatchTerm, !Recover,
+      MDBuilder(*C).createBranchWeights(1, 100000));
 
-  IRB.SetInsertPoint(CheckTerm);
+  IRB.SetInsertPoint(TagMismatchTerm);
   Value *PtrLowBits = IRB.CreateTrunc(IRB.CreateAnd(PtrLong, 15), Int8Ty);
   PtrLowBits = IRB.CreateAdd(
       PtrLowBits, ConstantInt::get(Int8Ty, (1 << AccessSizeIndex) - 1));
   Value *PtrLowBitsOOB = IRB.CreateICmpUGE(PtrLowBits, MemTag);
-  SplitBlockAndInsertIfThen(PtrLowBitsOOB, CheckTerm, false,
+  SplitBlockAndInsertIfThen(PtrLowBitsOOB, TagMismatchTerm, false,
                             MDBuilder(*C).createBranchWeights(1, 100000),
                             (DomTreeUpdater *)nullptr, nullptr,
                             CheckFailTerm->getParent());
 
-  IRB.SetInsertPoint(CheckTerm);
+  IRB.SetInsertPoint(TagMismatchTerm);
   Value *InlineTagAddr = IRB.CreateOr(AddrLong, 15);
   InlineTagAddr = IRB.CreateIntToPtr(InlineTagAddr, Int8PtrTy);
   Value *InlineTag = IRB.CreateLoad(Int8Ty, InlineTagAddr);
   Value *InlineTagMismatch = IRB.CreateICmpNE(PtrTag, InlineTag);
-  SplitBlockAndInsertIfThen(InlineTagMismatch, CheckTerm, false,
+  SplitBlockAndInsertIfThen(InlineTagMismatch, TagMismatchTerm, false,
                             MDBuilder(*C).createBranchWeights(1, 100000),
                             (DomTreeUpdater *)nullptr, nullptr,
                             CheckFailTerm->getParent());
@@ -942,7 +959,8 @@ void HWAddressSanitizer::instrumentMemAccessInline(Value *Ptr, bool IsWrite,
   }
   IRB.CreateCall(Asm, PtrLong);
   if (Recover)
-    cast<BranchInst>(CheckFailTerm)->setSuccessor(0, CheckTerm->getParent());
+    cast<BranchInst>(CheckFailTerm)
+        ->setSuccessor(0, TagMismatchTerm->getParent());
 }
 
 bool HWAddressSanitizer::ignoreMemIntrinsic(MemIntrinsic *MI) {
