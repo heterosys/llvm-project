@@ -757,6 +757,10 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::STACKSAVE, MVT::Other, Custom);
   setOperationAction(ISD::GET_ROUNDING, MVT::i32, Custom);
 
+  // TODO: Could move this to custom lowering, could benefit from combines on
+  // extract of relevant bits.
+  setOperationAction(ISD::GET_FPMODE, MVT::i32, Legal);
+
   setTargetDAGCombine({ISD::ADD,
                        ISD::UADDO_CARRY,
                        ISD::SUB,
@@ -13464,7 +13468,11 @@ SDNode *SITargetLowering::adjustWritemask(MachineSDNode *&Node,
         continue;
     } else {
       SDValue Op = DAG.getTargetConstant(Idx, SDLoc(User), MVT::i32);
-      DAG.UpdateNodeOperands(User, SDValue(NewNode, 0), Op);
+      SDNode *NewUser = DAG.UpdateNodeOperands(User, SDValue(NewNode, 0), Op);
+      if (NewUser != User) {
+        DAG.ReplaceAllUsesWith(SDValue(User, 0), SDValue(NewUser, 0));
+        DAG.RemoveDeadNode(User);
+      }
     }
 
     switch (Idx) {

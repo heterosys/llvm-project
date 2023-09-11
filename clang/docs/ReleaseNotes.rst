@@ -215,7 +215,7 @@ Bug Fixes in This Version
 - Support MSVC predefined macro expressions in constant expressions and in
   local structs.
 - Correctly parse non-ascii identifiers that appear immediately after a line splicing
-  (`#65156 <https://github.com/llvm/llvm-project/issues/65156>`_`)
+  (`#65156 <https://github.com/llvm/llvm-project/issues/65156>`_)
 - Clang no longer considers the loss of ``__unaligned`` qualifier from objects as
   an invalid conversion during method function overload resolution.
 
@@ -270,6 +270,11 @@ Bug Fixes to C++ Support
 - Fix crash when parsing the requires clause of some generic lambdas.
   (`#64689 <https://github.com/llvm/llvm-project/issues/64689>`_)
 
+- Fix crash when the trailing return type of a generic and dependent
+  lambda refers to an init-capture.
+  (`#65067 <https://github.com/llvm/llvm-project/issues/65067>`_ and
+  `#63675 <https://github.com/llvm/llvm-project/issues/63675>`_)
+
 Bug Fixes to AST Handling
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 - Fixed an import failure of recursive friend class template.
@@ -303,6 +308,9 @@ AMDGPU Support
 
 X86 Support
 ^^^^^^^^^^^
+
+- Added option ``-m[no-]evex512`` to disable ZMM and 64-bit mask instructions
+  for AVX512 features.
 
 Arm and AArch64 Support
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -369,6 +377,9 @@ Floating Point Support in Clang
   semantics. If ``math-errno`` is disabled in the current TU, clang will
   re-enable ``math-errno`` in the presense of
   ``#pragma float_control(precise,on)``.
+- Add ``__builtin_exp10``, ``__builtin_exp10f``,
+  ``__builtin_exp10f16``, ``__builtin_exp10l`` and
+  ``__builtin_exp10f128`` builtins.
 
 AST Matchers
 ------------
@@ -378,6 +389,7 @@ AST Matchers
 
 clang-format
 ------------
+- Add ``AllowBreakBeforeNoexceptSpecifier`` option.
 
 libclang
 --------

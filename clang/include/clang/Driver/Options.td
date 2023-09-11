@@ -5271,7 +5271,7 @@ def print_supported_cpus : Flag<["-", "--"], "print-supported-cpus">,
   MarshallingInfoFlag<FrontendOpts<"PrintSupportedCPUs">>;
 def print_supported_extensions : Flag<["-", "--"], "print-supported-extensions">,
   Visibility<[ClangOption, CC1Option, CLOption]>,
-  HelpText<"Print supported extensions for RISC-V">,
+  HelpText<"Print supported -march extensions (RISC-V and AArch64 only)">,
   MarshallingInfoFlag<FrontendOpts<"PrintSupportedExtensions">>;
 def : Flag<["-"], "mcpu=help">, Alias<print_supported_cpus>;
 def : Flag<["-"], "mtune=help">, Alias<print_supported_cpus>;
@@ -5755,6 +5755,8 @@ def mcx16 : Flag<["-"], "mcx16">, Group<m_x86_Features_Group>;
 def mno_cx16 : Flag<["-"], "mno-cx16">, Group<m_x86_Features_Group>;
 def menqcmd : Flag<["-"], "menqcmd">, Group<m_x86_Features_Group>;
 def mno_enqcmd : Flag<["-"], "mno-enqcmd">, Group<m_x86_Features_Group>;
+def mevex512 : Flag<["-"], "mevex512">, Group<m_x86_Features_Group>;
+def mno_evex512 : Flag<["-"], "mno-evex512">, Group<m_x86_Features_Group>;
 def mf16c : Flag<["-"], "mf16c">, Group<m_x86_Features_Group>;
 def mno_f16c : Flag<["-"], "mno-f16c">, Group<m_x86_Features_Group>;
 def mfma : Flag<["-"], "mfma">, Group<m_x86_Features_Group>;
