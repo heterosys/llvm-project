@@ -37,6 +37,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Base64.h"
+#include "llvm/Support/Casting.h"
 
 #include <cstdint>
 #include <numeric>
@@ -528,9 +529,9 @@ LogicalResult TestOpWithVariadicResultsAndFolder::fold(
 }
 
 OpFoldResult TestOpInPlaceFold::fold(FoldAdaptor adaptor) {
-  if (adaptor.getOp() && !(*this)->getAttr("attr")) {
+  if (adaptor.getOp() && !getProperties().attr) {
     // The folder adds "attr" if not present.
-    (*this)->setAttr("attr", adaptor.getOp());
+    getProperties().attr = dyn_cast_or_null<IntegerAttr>(adaptor.getOp());
     return getResult();
   }
   return {};
@@ -1312,6 +1313,16 @@ void TestStoreWithARegion::getSuccessorRegions(
     regions.emplace_back(&getBody(), getBody().front().getArguments());
   else
     regions.emplace_back();
+}
+
+void TestStoreWithALoopRegion::getSuccessorRegions(
+    RegionBranchPoint point, SmallVectorImpl<RegionSuccessor> &regions) {
+  // Both the operation itself and the region may be branching into the body or
+  // back into the operation itself. It is possible for the operation not to
+  // enter the body.
+  regions.emplace_back(
+      RegionSuccessor(&getBody(), getBody().front().getArguments()));
+  regions.emplace_back();
 }
 
 LogicalResult

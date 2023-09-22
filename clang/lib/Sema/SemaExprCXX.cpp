@@ -30,7 +30,6 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Basic/TypeTraits.h"
-#include "clang/Basic/TokenKinds.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
@@ -5510,8 +5509,8 @@ static bool EvaluateBooleanTypeTrait(Sema &S, TypeTrait Kind,
       if (U->isReferenceType())
         return false;
 
-      QualType TPtr = S.BuiltinAddPointer(S.BuiltinRemoveReference(T, UnaryTransformType::RemoveCVRef, {}), {});
-      QualType UPtr = S.BuiltinAddPointer(S.BuiltinRemoveReference(U, UnaryTransformType::RemoveCVRef, {}), {});
+      QualType TPtr = S.Context.getPointerType(S.BuiltinRemoveReference(T, UnaryTransformType::RemoveCVRef, {}));
+      QualType UPtr = S.Context.getPointerType(S.BuiltinRemoveReference(U, UnaryTransformType::RemoveCVRef, {}));
       return EvaluateBinaryTypeTrait(S, TypeTrait::BTT_IsConvertibleTo, UPtr, TPtr, RParenLoc);
     }
 
@@ -9064,7 +9063,8 @@ Sema::BuildExprRequirement(
     concepts::ExprRequirement::ReturnTypeRequirement ReturnTypeRequirement) {
   auto Status = concepts::ExprRequirement::SS_Satisfied;
   ConceptSpecializationExpr *SubstitutedConstraintExpr = nullptr;
-  if (E->isInstantiationDependent() || ReturnTypeRequirement.isDependent())
+  if (E->isInstantiationDependent() || E->getType()->isPlaceholderType() ||
+      ReturnTypeRequirement.isDependent())
     Status = concepts::ExprRequirement::SS_Dependent;
   else if (NoexceptLoc.isValid() && canThrow(E) == CanThrowResult::CT_Can)
     Status = concepts::ExprRequirement::SS_NoexceptNotMet;
@@ -9191,14 +9191,14 @@ void Sema::ActOnFinishRequiresExpr() {
   assert(CurContext && "Popped translation unit!");
 }
 
-ExprResult
-Sema::ActOnRequiresExpr(SourceLocation RequiresKWLoc,
-                        RequiresExprBodyDecl *Body,
-                        ArrayRef<ParmVarDecl *> LocalParameters,
-                        ArrayRef<concepts::Requirement *> Requirements,
-                        SourceLocation ClosingBraceLoc) {
-  auto *RE = RequiresExpr::Create(Context, RequiresKWLoc, Body, LocalParameters,
-                                  Requirements, ClosingBraceLoc);
+ExprResult Sema::ActOnRequiresExpr(
+    SourceLocation RequiresKWLoc, RequiresExprBodyDecl *Body,
+    SourceLocation LParenLoc, ArrayRef<ParmVarDecl *> LocalParameters,
+    SourceLocation RParenLoc, ArrayRef<concepts::Requirement *> Requirements,
+    SourceLocation ClosingBraceLoc) {
+  auto *RE = RequiresExpr::Create(Context, RequiresKWLoc, Body, LParenLoc,
+                                  LocalParameters, RParenLoc, Requirements,
+                                  ClosingBraceLoc);
   if (DiagnoseUnexpandedParameterPackInRequiresExpr(RE))
     return ExprError();
   return RE;

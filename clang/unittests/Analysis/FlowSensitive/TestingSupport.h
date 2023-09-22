@@ -240,12 +240,15 @@ checkDataflow(AnalysisInputs<AnalysisT> AI,
     };
   }
 
-  for (const ast_matchers::BoundNodes &BN :
-       ast_matchers::match(ast_matchers::functionDecl(
-                               ast_matchers::hasBody(ast_matchers::stmt()),
-                               AI.TargetFuncMatcher)
-                               .bind("target"),
-                           Context)) {
+  SmallVector<ast_matchers::BoundNodes, 1> MatchResult = ast_matchers::match(
+      ast_matchers::functionDecl(ast_matchers::hasBody(ast_matchers::stmt()),
+                                 AI.TargetFuncMatcher)
+          .bind("target"),
+      Context);
+  if (MatchResult.empty())
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "didn't find any matching target functions");
+  for (const ast_matchers::BoundNodes &BN : MatchResult) {
     // Get the AST node of the target function.
     const FunctionDecl *Target = BN.getNodeAs<FunctionDecl>("target");
     if (Target == nullptr)
@@ -463,18 +466,6 @@ inline Value *getFieldValue(const RecordStorageLocation *Loc,
   return Env.getValue(*FieldLoc);
 }
 
-/// Returns the value of a `Field` on a `Struct.
-/// Returns null if `Struct` is null.
-inline Value *getFieldValue(const RecordValue *Struct, const ValueDecl &Field,
-                            const Environment &Env) {
-  if (Struct == nullptr)
-    return nullptr;
-  StorageLocation *FieldLoc = Struct->getChild(Field);
-  if (FieldLoc == nullptr)
-    return nullptr;
-  return Env.getValue(*FieldLoc);
-}
-
 /// Creates and owns constraints which are boolean values.
 class ConstraintContext {
   unsigned NextAtom = 0;
@@ -489,6 +480,11 @@ public:
   // Returns a reference to a fresh atomic variable.
   const Formula *atom() {
     return &Formula::create(A, Formula::AtomRef, {}, NextAtom++);
+  }
+
+  // Returns a reference to a literal boolean value.
+  const Formula *literal(bool B) {
+    return &Formula::create(A, Formula::Literal, {}, B);
   }
 
   // Creates a boolean conjunction.
