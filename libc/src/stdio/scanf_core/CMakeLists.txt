@@ -1,8 +1,26 @@
+if(LIBC_CONF_SCANF_DISABLE_FLOAT)
+  list(APPEND scanf_config_copts "-DLIBC_COPT_SCANF_DISABLE_FLOAT")
+endif()
+if(LIBC_CONF_SCANF_DISABLE_INDEX_MODE)
+  list(APPEND scanf_config_copts "-DLIBC_COPT_SCANF_DISABLE_INDEX_MODE")
+endif()
+if(scanf_config_copts)
+  list(PREPEND scanf_config_copts "COMPILE_OPTIONS")
+endif()
+
+add_header_library(
+  scanf_config
+  HDRS
+    scanf_config.h
+  ${scanf_config_copts}
+)
+
 add_header_library(
   core_structs
   HDRS
     core_structs.h
   DEPENDS
+    .scanf_config
     libc.src.__support.CPP.string_view
     libc.src.__support.CPP.bitset
     libc.src.__support.FPUtil.fp_bits
@@ -22,12 +40,6 @@ add_header_library(
     libc.src.__support.CPP.string_view
 )
 
-if(NOT (TARGET libc.src.__support.File.file))
-  # Not all platforms have a file implementation. If file is unvailable,
-  # then we must skip all the parts that need file.
-  return()
-endif()
-
 add_object_library(
   scanf_main
   SRCS
@@ -43,32 +55,13 @@ add_object_library(
 )
 
 add_object_library(
-  string_reader
-  SRCS
-    string_reader.cpp
-  HDRS
-    string_reader.h
-)
-
-add_object_library(
-  file_reader
-  SRCS
-    file_reader.cpp
-  HDRS
-    file_reader.h
-  DEPENDS
-    libc.src.__support.File.file
-)
-
-add_object_library(
   reader
   SRCS
     reader.cpp
   HDRS
     reader.h
   DEPENDS
-    .string_reader
-    .file_reader
+    libc.src.__support.macros.attributes
 )
 
 add_object_library(
@@ -99,15 +92,31 @@ add_object_library(
     libc.src.__support.str_to_float
 )
 
-add_object_library(
-  vfscanf_internal
-  SRCS
-    vfscanf_internal.cpp
-  HDRS
-    vfscanf_internal.h
-  DEPENDS
-    .reader
-    .file_reader
-    .scanf_main
-    libc.src.__support.arg_list
-)
+if(LIBC_TARGET_OS_IS_GPU)
+  add_header_library(
+    vfscanf_internal
+    HDRS
+      vfscanf_internal.h
+    DEPENDS
+      .reader
+      .scanf_main
+      libc.include.stdio
+      libc.src.__support.arg_list
+      libc.src.stdio.getc
+      libc.src.stdio.ungetc
+      libc.src.stdio.ferror
+  )
+elseif(TARGET libc.src.__support.File.file OR (NOT LLVM_LIBC_FULL_BUILD))
+  add_header_library(
+    vfscanf_internal
+    HDRS
+      vfscanf_internal.h
+    DEPENDS
+      .reader
+      .scanf_main
+      libc.include.stdio
+      libc.src.__support.File.file
+      libc.src.__support.arg_list
+    ${use_system_file}
+  )
+endif()

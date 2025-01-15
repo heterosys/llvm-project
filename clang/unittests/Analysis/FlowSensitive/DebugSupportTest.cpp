@@ -102,7 +102,9 @@ TEST(BoolValueDebugStringTest, ComplexBooleanWithSomeNames) {
   Formula::AtomNames Names;
   Names[X->getAtom()] = "X";
   Names[Y->getAtom()] = "Y";
-  auto B = Ctx.disj(Ctx.conj(Y, Ctx.atom()), Ctx.disj(X, Ctx.atom()));
+  auto V2 = Ctx.atom();
+  auto V3 = Ctx.atom();
+  auto B = Ctx.disj(Ctx.conj(Y, V2), Ctx.disj(X, V3));
 
   auto Expected = R"(((Y & V2) | (X | V3)))";
   std::string Actual;

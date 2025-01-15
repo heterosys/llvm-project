@@ -17,6 +17,8 @@ _start:
   drop
   i32.const foo
   drop
+  i32.const __stack_low
+  drop
   end_function
 
 .section .bss.data,"",@
@@ -52,5 +54,11 @@ foo:
 # CHECK-NEXT:       - Index:           1
 # CHECK-NEXT:         Kind:            FUNCTION
 # CHECK-NEXT:         Name:            ret32
-# CHECK-NEXT:         Flags:           [ VISIBILITY_HIDDEN ]
+# CHECK-NEXT:         Flags:           [  ]
 # CHECK-NEXT:         Function:        1
+# CHECK-NEXT:       - Index:           2
+# CHECK-NEXT:         Kind:            DATA
+# CHECK-NEXT:         Name:            __stack_low
+# CHECK-NEXT:         Flags:           [ VISIBILITY_HIDDEN, ABSOLUTE ]
+# CHECK-NEXT:         Offset:          1040
+# CHECK-NEXT:         Size:            0

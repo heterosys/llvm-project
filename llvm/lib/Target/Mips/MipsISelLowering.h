@@ -21,19 +21,17 @@
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
-#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/ValueTypes.h"
+#include "llvm/CodeGenTypes/MachineValueType.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Target/TargetMachine.h"
 #include <algorithm>
-#include <cassert>
 #include <deque>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -244,15 +242,21 @@ class TargetRegisterClass;
       VEXTRACT_SEXT_ELT,
       VEXTRACT_ZEXT_ELT,
 
+      // Double select nodes for machines without conditional-move.
+      DOUBLE_SELECT_I,
+      DOUBLE_SELECT_I64,
+
       // Load/Store Left/Right nodes.
-      LWL = ISD::FIRST_TARGET_MEMORY_OPCODE,
+      FIRST_MEMORY_OPCODE,
+      LWL = FIRST_MEMORY_OPCODE,
       LWR,
       SWL,
       SWR,
       LDL,
       LDR,
       SDL,
-      SDR
+      SDR,
+      LAST_MEMORY_OPCODE = SDR,
     };
 
   } // ene namespace MipsISD
@@ -362,6 +366,8 @@ class TargetRegisterClass;
     getExceptionSelectorRegister(const Constant *PersonalityFn) const override {
       return ABI.IsN64() ? Mips::A1_64 : Mips::A1;
     }
+
+    bool softPromoteHalfType() const override { return true; }
 
     bool isJumpTableRelative() const override {
       return getTargetMachine().isPositionIndependent();
@@ -548,6 +554,7 @@ class TargetRegisterClass;
                         bool HasExtractInsert) const;
     SDValue lowerFABS64(SDValue Op, SelectionDAG &DAG,
                         bool HasExtractInsert) const;
+    SDValue lowerFCANONICALIZE(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerEH_RETURN(SDValue Op, SelectionDAG &DAG) const;
@@ -618,7 +625,7 @@ class TargetRegisterClass;
     SDValue LowerInterruptReturn(SmallVectorImpl<SDValue> &RetOps,
                                  const SDLoc &DL, SelectionDAG &DAG) const;
 
-    bool shouldSignExtendTypeInLibCall(EVT Type, bool IsSigned) const override;
+    bool shouldSignExtendTypeInLibCall(Type *Ty, bool IsSigned) const override;
 
     // Inline asm support
     ConstraintType getConstraintType(StringRef Constraint) const override;
@@ -641,8 +648,7 @@ class TargetRegisterClass;
     /// vector.  If it is invalid, don't add anything to Ops. If hasMemory is
     /// true it means one of the asm constraint of the inline asm instruction
     /// being processed is 'm'.
-    void LowerAsmOperandForConstraint(SDValue Op,
-                                      std::string &Constraint,
+    void LowerAsmOperandForConstraint(SDValue Op, StringRef Constraint,
                                       std::vector<SDValue> &Ops,
                                       SelectionDAG &DAG) const override;
 

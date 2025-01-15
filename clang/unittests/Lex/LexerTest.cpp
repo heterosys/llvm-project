@@ -74,13 +74,7 @@ protected:
     PP = CreatePP(Source, ModLoader);
 
     std::vector<Token> toks;
-    while (1) {
-      Token tok;
-      PP->Lex(tok);
-      if (tok.is(tok::eof))
-        break;
-      toks.push_back(tok);
-    }
+    PP->LexTokensUntilEOF(&toks);
 
     return toks;
   }
@@ -628,12 +622,7 @@ TEST_F(LexerTest, FindNextToken) {
 TEST_F(LexerTest, CreatedFIDCountForPredefinedBuffer) {
   TrivialModuleLoader ModLoader;
   auto PP = CreatePP("", ModLoader);
-  while (1) {
-    Token tok;
-    PP->Lex(tok);
-    if (tok.is(tok::eof))
-      break;
-  }
+  PP->LexTokensUntilEOF();
   EXPECT_EQ(SourceMgr.getNumCreatedFIDsForFileID(PP->getPredefinesFileID()),
             1U);
 }
@@ -661,6 +650,38 @@ TEST_F(LexerTest, RawAndNormalLexSameForLineComments) {
     ToksView = ToksView.drop_front();
   }
   EXPECT_TRUE(ToksView.empty());
+}
+
+TEST_F(LexerTest, GetRawTokenOnEscapedNewLineChecksWhitespace) {
+  const llvm::StringLiteral Source = R"cc(
+  #define ONE \
+  1
+
+  int i = ONE;
+  )cc";
+  std::vector<Token> Toks =
+      CheckLex(Source, {tok::kw_int, tok::identifier, tok::equal,
+                        tok::numeric_constant, tok::semi});
+
+  // Set up by getting the raw token for the `1` in the macro definition.
+  const Token &OneExpanded = Toks[3];
+  Token Tok;
+  ASSERT_FALSE(
+      Lexer::getRawToken(OneExpanded.getLocation(), Tok, SourceMgr, LangOpts));
+  // The `ONE`.
+  ASSERT_EQ(Tok.getKind(), tok::raw_identifier);
+  ASSERT_FALSE(
+      Lexer::getRawToken(SourceMgr.getSpellingLoc(OneExpanded.getLocation()),
+                         Tok, SourceMgr, LangOpts));
+  // The `1` in the macro definition.
+  ASSERT_EQ(Tok.getKind(), tok::numeric_constant);
+
+  // Go back 4 characters: two spaces, one newline, and the backslash.
+  SourceLocation EscapedNewLineLoc = Tok.getLocation().getLocWithOffset(-4);
+  // Expect true (=failure) because the whitespace immediately after the
+  // escaped newline is not ignored.
+  EXPECT_TRUE(Lexer::getRawToken(EscapedNewLineLoc, Tok, SourceMgr, LangOpts,
+                                 /*IgnoreWhiteSpace=*/false));
 }
 
 TEST(LexerPreambleTest, PreambleBounds) {

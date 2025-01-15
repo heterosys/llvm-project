@@ -1,10 +1,10 @@
-! RUN: bbc -o - %s | FileCheck %s
+! RUN: bbc -hlfir=false -o - %s | FileCheck %s
 
 ! CHECK-LABEL: fir.global @block_
 ! CHECK-DAG: %[[VAL_1:.*]] = arith.constant 1.000000e+00 : f32
 ! CHECK-DAG: %[[VAL_2:.*]] = arith.constant 2.400000e+00 : f32
 ! CHECK-DAG: %[[VAL_3:.*]] = arith.constant 0.000000e+00 : f32
-! CHECK: %[[VAL_4:.*]] = fir.undefined tuple<!fir.array<5x5xf32>>
+! CHECK: %[[VAL_4:.*]] = fir.zero_bits tuple<!fir.array<5x5xf32>>
 ! CHECK: %[[VAL_5:.*]] = fir.undefined !fir.array<5x5xf32>
 ! CHECK: %[[VAL_6:.*]] = fir.insert_on_range %[[VAL_5]], %[[VAL_1]] from (0, 0) to (1, 0) : (!fir.array<5x5xf32>, f32) -> !fir.array<5x5xf32>
 ! CHECK: %[[VAL_7:.*]] = fir.insert_on_range %[[VAL_6]], %[[VAL_3]] from (2, 0) to (4, 0) : (!fir.array<5x5xf32>, f32) -> !fir.array<5x5xf32>
@@ -115,7 +115,7 @@ subroutine range()
 end subroutine range
 
 ! c1 data
-! CHECK: fir.global internal @_QFrangeEc1(dense<(0.000000e+00,0.000000e+00)> : tensor<3x2xcomplex<f32>>) : !fir.array<2x3x!fir.complex<4>>
+! CHECK: fir.global internal @_QFrangeEc1(dense<(0.000000e+00,0.000000e+00)> : tensor<3x2xcomplex<f32>>) : !fir.array<2x3xcomplex<f32>>
 
 ! a0 array constructor
 ! CHECK: fir.global internal @_QQro.10xi4.{{.*}}(dense<[1, 2, 3, 3, 3, 3, 3, 3, 3, 3]> : tensor<10xi32>) constant : !fir.array<10xi32>
@@ -130,7 +130,7 @@ end subroutine range
 ! CHECK: fir.global internal @_QQro.2x3x4xi4.{{.*}}(dense<{{\[\[\[1, 1], \[2, 2], \[3, 3]], \[\[4, 4], \[5, 5], \[6, 6]], \[\[7, 7], \[8, 8], \[9, 9]], \[\[10, 10], \[11, 11], \[12, 12]]]}}> : tensor<4x3x2xi32>) constant : !fir.array<2x3x4xi32>
 
 ! c0 array constructor
-! CHECK: fir.global internal @_QQro.2x3xz4.{{.*}}(dense<{{\[}}[(1.000000e+00,1.500000e+00), (2.000000e+00,2.500000e+00)], [(3.000000e+00,3.500000e+00), (4.000000e+00,4.500000e+00)], [(5.000000e+00,5.500000e+00), (6.000000e+00,6.500000e+00)]]> : tensor<3x2xcomplex<f32>>) constant : !fir.array<2x3x!fir.complex<4>>
+! CHECK: fir.global internal @_QQro.2x3xz4.{{.*}}(dense<{{\[}}[(1.000000e+00,1.500000e+00), (2.000000e+00,2.500000e+00)], [(3.000000e+00,3.500000e+00), (4.000000e+00,4.500000e+00)], [(5.000000e+00,5.500000e+00), (6.000000e+00,6.500000e+00)]]> : tensor<3x2xcomplex<f32>>) constant : !fir.array<2x3xcomplex<f32>>
 
 ! CHECK-LABEL rangeGlobal
 subroutine rangeGlobal()

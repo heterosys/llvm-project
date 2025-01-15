@@ -20,6 +20,7 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/DbgEntityHistoryCalculator.h"
 #include "llvm/CodeGen/DebugHandlerBase.h"
@@ -158,6 +159,9 @@ private:
     /// Ordered list of top-level inlined call sites.
     SmallVector<const DILocation *, 1> ChildSites;
 
+    /// Set of all functions directly inlined into this one.
+    SmallSet<codeview::TypeIndex, 1> Inlinees;
+
     SmallVector<LocalVariable, 1> Locals;
     SmallVector<CVGlobalVariable, 1> Globals;
 
@@ -216,7 +220,7 @@ private:
   // DIGlobalVariableExpression referencing the DIGlobalVariable.
   DenseMap<const DIGlobalVariable *, uint64_t> CVGlobalVariableOffsets;
 
-  // Map used to seperate variables according to the lexical scope they belong
+  // Map used to separate variables according to the lexical scope they belong
   // in.  This is populated by recordLocalVariable() before
   // collectLexicalBlocks() separates the variables between the FunctionInfo
   // and LexicalBlocks.
@@ -371,6 +375,8 @@ private:
   void emitInlinedCallSite(const FunctionInfo &FI, const DILocation *InlinedAt,
                            const InlineSite &Site);
 
+  void emitInlinees(const SmallSet<codeview::TypeIndex, 1> &Inlinees);
+
   using InlinedEntity = DbgValueHistoryMap::InlinedEntity;
 
   void collectGlobalVariableInfo();
@@ -510,8 +516,6 @@ public:
   CodeViewDebug(AsmPrinter *AP);
 
   void beginModule(Module *M) override;
-
-  void setSymbolSize(const MCSymbol *, uint64_t) override {}
 
   /// Emit the COFF section that holds the line table information.
   void endModule() override;

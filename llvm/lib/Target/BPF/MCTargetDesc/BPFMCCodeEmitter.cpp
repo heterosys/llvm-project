@@ -20,7 +20,6 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/Support/Endian.h"
 #include "llvm/Support/EndianStream.h"
 #include <cassert>
 #include <cstdint>
@@ -116,8 +115,8 @@ void BPFMCCodeEmitter::encodeInstruction(const MCInst &MI,
                                          const MCSubtargetInfo &STI) const {
   unsigned Opcode = MI.getOpcode();
   raw_svector_ostream OS(CB);
-  support::endian::Writer OSE(OS,
-                              IsLittleEndian ? support::little : support::big);
+  support::endian::Writer OSE(OS, IsLittleEndian ? llvm::endianness::little
+                                                 : llvm::endianness::big);
 
   if (Opcode == BPF::LD_imm64 || Opcode == BPF::LD_pseudo) {
     uint64_t Value = getBinaryCodeForInstr(MI, Fixups, STI);

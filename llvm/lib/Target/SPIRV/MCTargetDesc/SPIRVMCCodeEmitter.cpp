@@ -65,11 +65,10 @@ static bool hasType(const MCInst &MI, const MCInstrInfo &MII) {
   // If we define an output, and have at least one other argument.
   if (MCDesc.getNumDefs() == 1 && MCDesc.getNumOperands() >= 2) {
     // Check if we define an ID, and take a type as operand 1.
-    auto &DefOpInfo = MCDesc.operands()[0];
-    auto &FirstArgOpInfo = MCDesc.operands()[1];
-    return (DefOpInfo.RegClass == SPIRV::IDRegClassID ||
-            DefOpInfo.RegClass == SPIRV::ANYIDRegClassID) &&
-           FirstArgOpInfo.RegClass == SPIRV::TYPERegClassID;
+    return MCDesc.operands()[0].RegClass >= 0 &&
+           MCDesc.operands()[1].RegClass >= 0 &&
+           MCDesc.operands()[0].RegClass != SPIRV::TYPERegClassID &&
+           MCDesc.operands()[1].RegClass == SPIRV::TYPERegClassID;
   }
   return false;
 }
@@ -78,10 +77,10 @@ static void emitOperand(const MCOperand &Op, SmallVectorImpl<char> &CB) {
   if (Op.isReg()) {
     // Emit the id index starting at 1 (0 is an invalid index).
     support::endian::write<uint32_t>(
-        CB, Register::virtReg2Index(Op.getReg()) + 1, support::little);
+        CB, Register::virtReg2Index(Op.getReg()) + 1, llvm::endianness::little);
   } else if (Op.isImm()) {
     support::endian::write(CB, static_cast<uint32_t>(Op.getImm()),
-                           support::little);
+                           llvm::endianness::little);
   } else {
     llvm_unreachable("Unexpected operand type in VReg");
   }
@@ -113,7 +112,7 @@ void SPIRVMCCodeEmitter::encodeInstruction(const MCInst &MI,
   const uint64_t OpCode = getBinaryCodeForInstr(MI, Fixups, STI);
   const uint32_t NumWords = MI.getNumOperands() + 1;
   const uint32_t FirstWord = (NumWords << 16) | OpCode;
-  support::endian::write(CB, FirstWord, support::little);
+  support::endian::write(CB, FirstWord, llvm::endianness::little);
 
   // Emit the instruction arguments (emitting the output type first if present).
   if (hasType(MI, MCII))

@@ -29,6 +29,7 @@
 #include "clang/Lex/PreprocessorOptions.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/VirtualFileSystem.h"
 #include <cstdio>
 #include <mutex>
 #include <utility>
@@ -171,9 +172,7 @@ public:
   ///
   /// Can provide false-negative in case the location was parsed after this
   /// instance had been constructed.
-  bool hasAlredyBeenParsed(SourceLocation Loc, FileID FID,
-                           const FileEntry *FE) {
-    assert(FE);
+  bool hasAlredyBeenParsed(SourceLocation Loc, FileID FID, FileEntryRef FE) {
     PPRegion region = getRegion(Loc, FID, FE);
     if (region.isInvalid())
       return false;
@@ -199,12 +198,11 @@ public:
   }
 
 private:
-  PPRegion getRegion(SourceLocation Loc, FileID FID, const FileEntry *FE) {
-    assert(FE);
+  PPRegion getRegion(SourceLocation Loc, FileID FID, FileEntryRef FE) {
     auto Bail = [this, FE]() {
       if (isParsedOnceInclude(FE)) {
-        const llvm::sys::fs::UniqueID &ID = FE->getUniqueID();
-        return PPRegion(ID, 0, FE->getModificationTime());
+        const llvm::sys::fs::UniqueID &ID = FE.getUniqueID();
+        return PPRegion(ID, 0, FE.getModificationTime());
       }
       return PPRegion();
     };
@@ -222,11 +220,11 @@ private:
     if (RegionFID != FID)
       return Bail();
 
-    const llvm::sys::fs::UniqueID &ID = FE->getUniqueID();
-    return PPRegion(ID, RegionOffset, FE->getModificationTime());
+    const llvm::sys::fs::UniqueID &ID = FE.getUniqueID();
+    return PPRegion(ID, RegionOffset, FE.getModificationTime());
   }
 
-  bool isParsedOnceInclude(const FileEntry *FE) {
+  bool isParsedOnceInclude(FileEntryRef FE) {
     return PP.getHeaderSearchInfo().isFileMultipleIncludeGuarded(FE) ||
            PP.getHeaderSearchInfo().hasFileBeenImported(FE);
   }
@@ -264,12 +262,13 @@ public:
                           StringRef FileName, bool IsAngled,
                           CharSourceRange FilenameRange,
                           OptionalFileEntryRef File, StringRef SearchPath,
-                          StringRef RelativePath, const Module *Imported,
+                          StringRef RelativePath, const Module *SuggestedModule,
+                          bool ModuleImported,
                           SrcMgr::CharacteristicKind FileType) override {
     bool isImport = (IncludeTok.is(tok::identifier) &&
             IncludeTok.getIdentifierInfo()->getPPKeywordID() == tok::pp_import);
     DataConsumer.ppIncludedFile(HashLoc, FileName, File, isImport, IsAngled,
-                            Imported);
+                                ModuleImported);
   }
 
   /// MacroDefined - This hook is called whenever a macro definition is seen.
@@ -396,11 +395,11 @@ public:
     // Don't skip bodies from main files; this may be revisited.
     if (SM.getMainFileID() == FID)
       return false;
-    const FileEntry *FE = SM.getFileEntryForID(FID);
+    OptionalFileEntryRef FE = SM.getFileEntryRefForID(FID);
     if (!FE)
       return false;
 
-    return ParsedLocsTracker->hasAlredyBeenParsed(Loc, FID, FE);
+    return ParsedLocsTracker->hasAlredyBeenParsed(Loc, FID, *FE);
   }
 
   TranslationUnitKind getTranslationUnitKind() override {
@@ -481,10 +480,10 @@ static CXErrorCode clang_indexSourceFile_Impl(
     CaptureDiag = new CaptureDiagnosticConsumer();
 
   // Configure the diagnostics.
-  IntrusiveRefCntPtr<DiagnosticsEngine>
-    Diags(CompilerInstance::createDiagnostics(new DiagnosticOptions,
-                                              CaptureDiag,
-                                              /*ShouldOwnClient=*/true));
+  IntrusiveRefCntPtr<DiagnosticsEngine> Diags(
+      CompilerInstance::createDiagnostics(*llvm::vfs::getRealFileSystem(),
+                                          new DiagnosticOptions, CaptureDiag,
+                                          /*ShouldOwnClient=*/true));
 
   // Recover resources if we crash before exiting this function.
   llvm::CrashRecoveryContextCleanupRegistrar<DiagnosticsEngine,

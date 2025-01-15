@@ -13,7 +13,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
@@ -74,6 +73,10 @@ public:
   bool literal() const {
     assert(kind() == Literal);
     return static_cast<bool>(Value);
+  }
+
+  bool isLiteral(bool b) const {
+    return kind() == Literal && static_cast<bool>(Value) == b;
   }
 
   ArrayRef<const Formula *> operands() const {

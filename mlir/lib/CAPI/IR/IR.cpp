@@ -25,8 +25,11 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Verifier.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Parser/Parser.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Support/ThreadPool.h"
 
 #include <cstddef>
 #include <memory>
@@ -200,6 +203,11 @@ void mlirOpPrintingFlagsElideLargeElementsAttrs(MlirOpPrintingFlags flags,
   unwrap(flags)->elideLargeElementsAttrs(largeElementLimit);
 }
 
+void mlirOpPrintingFlagsElideLargeResourceString(MlirOpPrintingFlags flags,
+                                                 intptr_t largeResourceLimit) {
+  unwrap(flags)->elideLargeResourceString(largeResourceLimit);
+}
+
 void mlirOpPrintingFlagsEnableDebugInfo(MlirOpPrintingFlags flags, bool enable,
                                         bool prettyForm) {
   unwrap(flags)->enableDebugInfo(enable, /*prettyForm=*/prettyForm);
@@ -217,6 +225,9 @@ void mlirOpPrintingFlagsAssumeVerified(MlirOpPrintingFlags flags) {
   unwrap(flags)->assumeVerified();
 }
 
+void mlirOpPrintingFlagsSkipRegions(MlirOpPrintingFlags flags) {
+  unwrap(flags)->skipRegions();
+}
 //===----------------------------------------------------------------------===//
 // Bytecode printing flags API.
 //===----------------------------------------------------------------------===//
@@ -416,18 +427,13 @@ static LogicalResult inferOperationTypes(OperationState &state) {
     auto prop = std::make_unique<char[]>(info->getOpPropertyByteSize());
     properties = OpaqueProperties(prop.get());
     if (properties) {
-      std::unique_ptr<InFlightDiagnostic> diagnostic;
-      auto getDiag = [&]() -> InFlightDiagnostic & {
-        if (!diagnostic) {
-          diagnostic = std::make_unique<InFlightDiagnostic>(
-              emitError(state.location)
-              << " failed properties conversion while building "
-              << state.name.getStringRef() << " with `" << attributes << "`: ");
-        }
-        return *diagnostic;
+      auto emitError = [&]() {
+        return mlir::emitError(state.location)
+               << " failed properties conversion while building "
+               << state.name.getStringRef() << " with `" << attributes << "`: ";
       };
       if (failed(info->setOpPropertiesFromAttribute(state.name, properties,
-                                                    attributes, getDiag)))
+                                                    attributes, emitError)))
         return failure();
     }
     if (succeeded(inferInterface->inferReturnTypes(
@@ -595,6 +601,60 @@ MlirBlock mlirOperationGetSuccessor(MlirOperation op, intptr_t pos) {
   return wrap(unwrap(op)->getSuccessor(static_cast<unsigned>(pos)));
 }
 
+MLIR_CAPI_EXPORTED bool
+mlirOperationHasInherentAttributeByName(MlirOperation op, MlirStringRef name) {
+  std::optional<Attribute> attr = unwrap(op)->getInherentAttr(unwrap(name));
+  return attr.has_value();
+}
+
+MlirAttribute mlirOperationGetInherentAttributeByName(MlirOperation op,
+                                                      MlirStringRef name) {
+  std::optional<Attribute> attr = unwrap(op)->getInherentAttr(unwrap(name));
+  if (attr.has_value())
+    return wrap(*attr);
+  return {};
+}
+
+void mlirOperationSetInherentAttributeByName(MlirOperation op,
+                                             MlirStringRef name,
+                                             MlirAttribute attr) {
+  unwrap(op)->setInherentAttr(
+      StringAttr::get(unwrap(op)->getContext(), unwrap(name)), unwrap(attr));
+}
+
+intptr_t mlirOperationGetNumDiscardableAttributes(MlirOperation op) {
+  return static_cast<intptr_t>(
+      llvm::range_size(unwrap(op)->getDiscardableAttrs()));
+}
+
+MlirNamedAttribute mlirOperationGetDiscardableAttribute(MlirOperation op,
+                                                        intptr_t pos) {
+  NamedAttribute attr =
+      *std::next(unwrap(op)->getDiscardableAttrs().begin(), pos);
+  return MlirNamedAttribute{wrap(attr.getName()), wrap(attr.getValue())};
+}
+
+MlirAttribute mlirOperationGetDiscardableAttributeByName(MlirOperation op,
+                                                         MlirStringRef name) {
+  return wrap(unwrap(op)->getDiscardableAttr(unwrap(name)));
+}
+
+void mlirOperationSetDiscardableAttributeByName(MlirOperation op,
+                                                MlirStringRef name,
+                                                MlirAttribute attr) {
+  unwrap(op)->setDiscardableAttr(unwrap(name), unwrap(attr));
+}
+
+bool mlirOperationRemoveDiscardableAttributeByName(MlirOperation op,
+                                                   MlirStringRef name) {
+  return !!unwrap(op)->removeDiscardableAttr(unwrap(name));
+}
+
+void mlirOperationSetSuccessor(MlirOperation op, intptr_t pos,
+                               MlirBlock block) {
+  unwrap(op)->setSuccessor(unwrap(block), static_cast<unsigned>(pos));
+}
+
 intptr_t mlirOperationGetNumAttributes(MlirOperation op) {
   return static_cast<intptr_t>(unwrap(op)->getAttrs().size());
 }
@@ -630,6 +690,14 @@ void mlirOperationPrintWithFlags(MlirOperation op, MlirOpPrintingFlags flags,
   unwrap(op)->print(stream, *unwrap(flags));
 }
 
+void mlirOperationPrintWithState(MlirOperation op, MlirAsmState state,
+                                 MlirStringCallback callback, void *userData) {
+  detail::CallbackOstream stream(callback, userData);
+  if (state.ptr)
+    unwrap(op)->print(stream, *unwrap(state));
+  unwrap(op)->print(stream);
+}
+
 void mlirOperationWriteBytecode(MlirOperation op, MlirStringCallback callback,
                                 void *userData) {
   detail::CallbackOstream stream(callback, userData);
@@ -656,6 +724,38 @@ void mlirOperationMoveAfter(MlirOperation op, MlirOperation other) {
 
 void mlirOperationMoveBefore(MlirOperation op, MlirOperation other) {
   return unwrap(op)->moveBefore(unwrap(other));
+}
+
+static mlir::WalkResult unwrap(MlirWalkResult result) {
+  switch (result) {
+  case MlirWalkResultAdvance:
+    return mlir::WalkResult::advance();
+
+  case MlirWalkResultInterrupt:
+    return mlir::WalkResult::interrupt();
+
+  case MlirWalkResultSkip:
+    return mlir::WalkResult::skip();
+  }
+  llvm_unreachable("unknown result in WalkResult::unwrap");
+}
+
+void mlirOperationWalk(MlirOperation op, MlirOperationWalkCallback callback,
+                       void *userData, MlirWalkOrder walkOrder) {
+  switch (walkOrder) {
+
+  case MlirWalkPreOrder:
+    unwrap(op)->walk<mlir::WalkOrder::PreOrder>(
+        [callback, userData](Operation *op) {
+          return unwrap(callback(wrap(op), userData));
+        });
+    break;
+  case MlirWalkPostOrder:
+    unwrap(op)->walk<mlir::WalkOrder::PostOrder>(
+        [callback, userData](Operation *op) {
+          return unwrap(callback(wrap(op), userData));
+        });
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -816,6 +916,10 @@ MlirValue mlirBlockAddArgument(MlirBlock block, MlirType type,
   return wrap(unwrap(block)->addArgument(unwrap(type), unwrap(loc)));
 }
 
+void mlirBlockEraseArgument(MlirBlock block, unsigned index) {
+  return unwrap(block)->eraseArgument(index);
+}
+
 MlirValue mlirBlockInsertArgument(MlirBlock block, intptr_t pos, MlirType type,
                                   MlirLocation loc) {
   return wrap(unwrap(block)->insertArgument(pos, unwrap(type), unwrap(loc)));
@@ -906,6 +1010,20 @@ void mlirValueReplaceAllUsesOfWith(MlirValue oldValue, MlirValue newValue) {
   unwrap(oldValue).replaceAllUsesWith(unwrap(newValue));
 }
 
+void mlirValueReplaceAllUsesExcept(MlirValue oldValue, MlirValue newValue,
+                                   intptr_t numExceptions,
+                                   MlirOperation *exceptions) {
+  Value oldValueCpp = unwrap(oldValue);
+  Value newValueCpp = unwrap(newValue);
+
+  llvm::SmallPtrSet<mlir::Operation *, 4> exceptionSet;
+  for (intptr_t i = 0; i < numExceptions; ++i) {
+    exceptionSet.insert(unwrap(exceptions[i]));
+  }
+
+  oldValueCpp.replaceAllUsesExcept(newValueCpp, exceptionSet);
+}
+
 //===----------------------------------------------------------------------===//
 // OpOperand API.
 //===----------------------------------------------------------------------===//
@@ -914,6 +1032,10 @@ bool mlirOpOperandIsNull(MlirOpOperand opOperand) { return !opOperand.ptr; }
 
 MlirOperation mlirOpOperandGetOwner(MlirOpOperand opOperand) {
   return wrap(unwrap(opOperand)->getOwner());
+}
+
+MlirValue mlirOpOperandGetValue(MlirOpOperand opOperand) {
+  return wrap(unwrap(opOperand)->get());
 }
 
 unsigned mlirOpOperandGetOperandNumber(MlirOpOperand opOperand) {

@@ -20,11 +20,9 @@
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/Endian.h"
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Triple.h"
 #include <cassert>
 #include <cstdint>
@@ -508,7 +506,8 @@ void PPCMCCodeEmitter::encodeInstruction(const MCInst &MI,
 
   // Output the constant in big/little endian byte order.
   unsigned Size = getInstSizeInBytes(MI);
-  support::endianness E = IsLittleEndian ? support::little : support::big;
+  llvm::endianness E =
+      IsLittleEndian ? llvm::endianness::little : llvm::endianness::big;
   switch (Size) {
   case 0:
     break;

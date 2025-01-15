@@ -10,8 +10,14 @@
 #define LLDB_SOURCE_PLUGINS_EXPRESSIONPARSER_CLANG_CLANGEXTERNALASTSOURCECALLBACKS_H
 
 #include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
-#include "clang/Basic/Module.h"
+#include "clang/Basic/ASTSourceDescriptor.h"
 #include <optional>
+
+namespace clang {
+
+class Module;
+
+} // namespace clang
 
 namespace lldb_private {
 
@@ -32,7 +38,8 @@ public:
       llvm::SmallVectorImpl<clang::Decl *> &Result) override;
 
   bool FindExternalVisibleDeclsByName(const clang::DeclContext *DC,
-                                      clang::DeclarationName Name) override;
+                                      clang::DeclarationName Name,
+                                      clang::Module *NamedModule) override;
 
   void CompleteType(clang::TagDecl *tag_decl) override;
 

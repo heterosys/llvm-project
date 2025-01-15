@@ -3,7 +3,7 @@
 // RUN:     misc-const-correctness.TransformValues: true, \
 // RUN:     misc-const-correctness.WarnPointersAsValues: false, \
 // RUN:     misc-const-correctness.TransformPointersAsValues: false \
-// RUN:   }}" -- -fno-delayed-template-parsing
+// RUN:   }}" -- -fno-delayed-template-parsing -fexceptions
 
 // ------- Provide test samples for primitive builtins ---------
 // - every 'p_*' variable is a 'potential_const_*' variable
@@ -54,6 +54,15 @@ void some_function(double np_arg0, wchar_t np_arg1) {
   --np_local5;
   int np_local6 = 4;
   np_local6--;
+}
+
+int function_try_block() try {
+  int p_local0 = 0;
+  // CHECK-MESSAGES: [[@LINE-1]]:3: warning: variable 'p_local0' of type 'int' can be declared 'const'
+  // CHECK-FIXES: int const p_local0
+  return p_local0;
+} catch (...) {
+  return 0;
 }
 
 void nested_scopes() {
@@ -975,4 +984,17 @@ void auto_usage_variants() {
   // CHECK-FIXES-NOT: auto const auto_td0
   auto &auto_td1 = auto_td0;
   auto *auto_td2 = &auto_td0;
+}
+
+using PointerToMemberFunction = int (Value::*)();
+void member_pointer(Value &x, PointerToMemberFunction m) {
+  Value &member_pointer_tmp = x;
+  (member_pointer_tmp.*m)();
+}
+
+using PointerToConstMemberFunction = int (Value::*)() const;
+void member_pointer_const(Value &x, PointerToConstMemberFunction m) {
+  Value &member_pointer_tmp = x;
+  // CHECK-MESSAGES:[[@LINE-1]]:3: warning: variable 'member_pointer_tmp' of type 'Value &' can be declared 'const'
+  (member_pointer_tmp.*m)();
 }

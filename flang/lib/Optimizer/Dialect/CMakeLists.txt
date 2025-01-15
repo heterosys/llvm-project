@@ -1,10 +1,12 @@
 add_subdirectory(Support)
+add_subdirectory(CUF)
 
 add_flang_library(FIRDialect
   FIRAttr.cpp
   FIRDialect.cpp
   FIROps.cpp
   FIRType.cpp
+  FirAliasTagOpInterface.cpp
   FortranVariableInterface.cpp
   Inliner.cpp
 
@@ -12,9 +14,11 @@ add_flang_library(FIRDialect
   CanonicalizationPatternsIncGen
   MLIRIR
   FIROpsIncGen
+  CUFAttrsIncGen
   intrinsics_gen
 
   LINK_LIBS
+  CUFAttrs
   FIRDialectSupport
   MLIRArithDialect
   MLIRBuiltinToLLVMIRTranslation

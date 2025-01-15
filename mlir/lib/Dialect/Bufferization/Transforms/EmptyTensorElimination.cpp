@@ -10,11 +10,12 @@
 
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Bufferization/IR/SubsetInsertionOpInterface.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotModuleBufferize.h"
 #include "mlir/Dialect/Bufferization/Transforms/Transforms.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/Interfaces/SubsetOpInterface.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
@@ -47,28 +48,20 @@ neededValuesDominateInsertionPoint(const DominanceInfo &domInfo,
   return true;
 }
 
-/// Return true if the given `insertionPoint` dominates all uses of
-/// `emptyTensorOp`.
-static bool insertionPointDominatesUses(const DominanceInfo &domInfo,
-                                        Operation *insertionPoint,
-                                        Operation *emptyTensorOp) {
-  for (Operation *user : emptyTensorOp->getUsers())
-    if (!domInfo.dominates(insertionPoint, user))
-      return false;
-  return true;
-}
-
-/// Find a valid insertion point for a replacement of `emptyTensorOp`, assuming
-/// that the replacement may use any value from `neededValues`.
+/// Find a valid insertion point for a replacement of `emptyTensorOp`'s
+/// use of `user` operation, assuming that the replacement may use any
+/// value from `neededValues`.
 static Operation *
-findValidInsertionPoint(Operation *emptyTensorOp,
+findValidInsertionPoint(Operation *emptyTensorOp, Operation *user,
                         const SmallVector<Value> &neededValues) {
   DominanceInfo domInfo;
+  Operation *candidateInsertionPoint = emptyTensorOp;
 
-  // Gather all possible insertion points: the location of `emptyTensorOp` and
-  // right after the definition of each value in `neededValues`.
+  // Gather all possible insertion points: the location of
+  // `candidateInsertionPoint` and right after the definition of each value in
+  // `neededValues`.
   SmallVector<Operation *> insertionPointCandidates;
-  insertionPointCandidates.push_back(emptyTensorOp);
+  insertionPointCandidates.push_back(candidateInsertionPoint);
   for (Value val : neededValues) {
     // Note: The anchor op is using all of `neededValues`, so:
     // * in case of a block argument: There must be at least one op in the block
@@ -90,8 +83,8 @@ findValidInsertionPoint(Operation *emptyTensorOp,
     if (!neededValuesDominateInsertionPoint(domInfo, insertionPoint,
                                             neededValues))
       continue;
-    // Check if the insertion point is before all uses.
-    if (!insertionPointDominatesUses(domInfo, insertionPoint, emptyTensorOp))
+    // Check if the insertion point is before the use to be replaced.
+    if (!domInfo.dominates(insertionPoint, user))
       continue;
     return insertionPoint;
   }
@@ -100,19 +93,40 @@ findValidInsertionPoint(Operation *emptyTensorOp,
   return nullptr;
 }
 
-LogicalResult mlir::bufferization::eliminateEmptyTensors(
-    RewriterBase &rewriter, Operation *op, OneShotAnalysisState &state) {
-  OpBuilder::InsertionGuard g(rewriter);
+Value mlir::bufferization::buildSubsetExtraction(RewriterBase &rewriter,
+                                                 SubsetInsertionOpInterface op,
+                                                 tensor::EmptyOp emptyTensorOp,
+                                                 Operation *user) {
 
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  // All values that are needed to create the replacement op.
+  SmallVector<Value> neededValues = op.getValuesNeededToBuildSubsetExtraction();
+  // Find a suitable insertion point. If no suitable insertion point
+  // for the replacement can be found, return an empty value to skip
+  // this replacement.
+  Operation *insertionPoint =
+      findValidInsertionPoint(emptyTensorOp, user, neededValues);
+  if (!insertionPoint)
+    return {};
+
+  rewriter.setInsertionPoint(insertionPoint);
+  Value replacement =
+      op.buildSubsetExtraction(rewriter, emptyTensorOp->getLoc());
+  return replacement;
+}
+
+LogicalResult mlir::bufferization::eliminateEmptyTensors(
+    RewriterBase &rewriter, Operation *op, OneShotAnalysisState &state,
+    ControlBuildSubsetExtractionFn subsetsExtractionFn) {
+  OpBuilder::InsertionGuard g(rewriter);
+  llvm::DenseSet<OpOperand *> visitedOpOperands;
   op->walk([&](SubsetInsertionOpInterface op) {
+    visitedOpOperands.clear();
     OpOperand &source = op.getSourceOperand();
     // Skip operands that do not bufferize inplace. "tensor.empty" could still
     // be replaced, but the transformation may not be beneficial.
     if (!state.isInPlace(source))
       return WalkResult::skip();
-    // All values that are needed to create the replacement op.
-    SmallVector<Value> neededValues =
-        op.getValuesNeededToBuildSubsetExtraction();
 
     // Find tensor.empty ops on the reverse SSA use-def chain. Only follow
     // equivalent tensors. I.e., stop when there are ops such as extract_slice
@@ -129,32 +143,39 @@ LogicalResult mlir::bufferization::eliminateEmptyTensors(
     // %3 = tensor.insert_slice %2 into ...
     config.followSameTypeOrCastsOnly = true;
     SetVector<Value> emptyTensors = state.findValueInReverseUseDefChain(
-        source.get(), /*condition=*/
-        [&](Value val) { return val.getDefiningOp<tensor::EmptyOp>(); },
-        config);
+        &source, /*condition=*/
+        [&](Value val) { return val.getDefiningOp<tensor::EmptyOp>(); }, config,
+        &visitedOpOperands);
 
     for (Value v : emptyTensors) {
-      Operation *emptyTensorOp = v.getDefiningOp();
+      auto emptyTensorOp = v.getDefiningOp<tensor::EmptyOp>();
+      assert(emptyTensorOp && "expected tensor.empty op");
+      // Find the use to be replaced from the use-def chain.
+      auto iter = llvm::find_if(
+          visitedOpOperands, [&emptyTensorOp](OpOperand *opOperand) {
+            return llvm::count(emptyTensorOp->getUses(), *opOperand);
+          });
 
-      // Find a suitable insertion point. If no suitable insertion point for
-      // the replacement can be found, skip this replacement.
-      Operation *insertionPoint =
-          findValidInsertionPoint(emptyTensorOp, neededValues);
-      if (!insertionPoint)
-        continue;
-
-      rewriter.setInsertionPoint(insertionPoint);
-      Value replacement =
-          op.buildSubsetExtraction(rewriter, emptyTensorOp->getLoc());
+      assert(iter != visitedOpOperands.end() && "could not find use");
+      OpOperand *useToBeReplaced = *iter;
+      Operation *user = useToBeReplaced->getOwner();
+      auto replacement = subsetsExtractionFn(rewriter, op, emptyTensorOp, user);
       if (!replacement)
         continue;
+      if (emptyTensorOp == replacement.getDefiningOp())
+        continue;
       if (replacement.getType() != v.getType()) {
+        if (cast<ShapedType>(replacement.getType()).getElementType() !=
+            cast<ShapedType>(v.getType()).getElementType())
+          continue;
         rewriter.setInsertionPointAfterValue(replacement);
         replacement = rewriter.create<tensor::CastOp>(v.getLoc(), v.getType(),
                                                       replacement);
       }
-      // Replace the tensor::EmptyOp.
-      rewriter.replaceOp(emptyTensorOp, replacement);
+      // Replace the specific use of the tensor::EmptyOp.
+      rewriter.modifyOpInPlace(user, [&]() {
+        user->setOperand(useToBeReplaced->getOperandNumber(), replacement);
+      });
       state.resetCache();
     }
 
@@ -179,18 +200,31 @@ struct EmptyTensorElimination
 };
 } // namespace
 
-void EmptyTensorElimination::runOnOperation() {
-  Operation *op = getOperation();
+LogicalResult mlir::bufferization::eliminateEmptyTensors(RewriterBase &rewriter,
+                                                         Operation *op) {
+  auto moduleOp = dyn_cast<ModuleOp>(op);
   OneShotBufferizationOptions options;
   options.allowReturnAllocsFromLoops = true;
+  if (moduleOp)
+    options.bufferizeFunctionBoundaries = true;
   OneShotAnalysisState state(op, options);
-  if (failed(analyzeOp(op, state))) {
-    signalPassFailure();
-    return;
+  if (moduleOp) {
+    // Module analysis takes into account function boundaries.
+    if (failed(analyzeModuleOp(moduleOp, state)))
+      return failure();
+  } else {
+    // Regular One-Shot Bufferize ignores func.func block arguments, func.call,
+    // func.return.
+    if (failed(analyzeOp(op, state)))
+      return failure();
   }
 
-  IRRewriter rewriter(op->getContext());
-  if (failed(bufferization::eliminateEmptyTensors(rewriter, op, state)))
+  return bufferization::eliminateEmptyTensors(rewriter, op, state);
+}
+
+void EmptyTensorElimination::runOnOperation() {
+  IRRewriter rewriter(getOperation()->getContext());
+  if (failed(bufferization::eliminateEmptyTensors(rewriter, getOperation())))
     signalPassFailure();
 }
 
